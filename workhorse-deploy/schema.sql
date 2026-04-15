@@ -1,8 +1,8 @@
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+-- gen_random_uuid() is built into PostgreSQL 13+, no extension needed
+CREATE EXTENSION IF NOT EXISTS "pg_trgm" SCHEMA public;
 
 CREATE TABLE projects (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   slug TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
   description TEXT,
@@ -13,7 +13,7 @@ CREATE TABLE projects (
 );
 
 CREATE TABLE sources (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
   url TEXT NOT NULL,
@@ -30,7 +30,7 @@ CREATE INDEX sources_project_idx ON sources(project_id);
 CREATE INDEX sources_type_idx ON sources(source_type);
 
 CREATE TABLE jobs (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
   description TEXT,
@@ -48,7 +48,7 @@ CREATE TABLE jobs (
 CREATE INDEX jobs_project_idx ON jobs(project_id);
 
 CREATE TABLE captures (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   source_id UUID REFERENCES sources(id) ON DELETE SET NULL,
   project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
   url TEXT NOT NULL,
@@ -65,7 +65,7 @@ CREATE INDEX captures_project_idx ON captures(project_id);
 CREATE INDEX captures_hash_idx ON captures(content_hash);
 
 CREATE TABLE entities (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
   entity_type TEXT NOT NULL,
   name TEXT NOT NULL,
@@ -84,7 +84,7 @@ CREATE INDEX entities_name_trgm ON entities USING GIN (name gin_trgm_ops);
 CREATE INDEX entities_raw_gin ON entities USING GIN (raw_data);
 
 CREATE TABLE opportunities (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
   capture_id UUID REFERENCES captures(id) ON DELETE SET NULL,
   entity_id UUID REFERENCES entities(id) ON DELETE SET NULL,
@@ -113,7 +113,7 @@ CREATE INDEX opps_status_idx ON opportunities(status);
 CREATE INDEX opps_review_idx ON opportunities(in_review_queue) WHERE in_review_queue = TRUE;
 
 CREATE TABLE market_signals (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
   capture_id UUID REFERENCES captures(id) ON DELETE SET NULL,
   signal_type TEXT NOT NULL,
@@ -129,7 +129,7 @@ CREATE INDEX signals_type_idx ON market_signals(signal_type);
 CREATE INDEX signals_project_idx ON market_signals(project_id);
 
 CREATE TABLE notes (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
   related_id UUID,
   related_type TEXT,
@@ -143,7 +143,7 @@ CREATE INDEX notes_project_idx ON notes(project_id);
 CREATE INDEX notes_tags_gin ON notes USING GIN (tags);
 
 CREATE TABLE alerts (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
   related_id UUID,
   related_type TEXT,
@@ -158,7 +158,7 @@ CREATE TABLE alerts (
 CREATE INDEX alerts_unsent_idx ON alerts(sent) WHERE sent = FALSE;
 
 CREATE TABLE digests (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
   digest_type TEXT NOT NULL,
   period_start DATE NOT NULL,
