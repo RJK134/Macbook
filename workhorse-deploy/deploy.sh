@@ -230,12 +230,12 @@ green "Database initialised"
 
 echo ""
 echo "--- Tables ---"
-ssh_cmd "docker exec workhorse-postgres psql -U postgres -d workhorse -c '\dt'" \
+ssh_cmd "docker exec workhorse-postgres psql -U workhorse_user -d workhorse -c '\dt'" \
   || fail "Listing tables"
 
 echo ""
 echo "--- Projects ---"
-ssh_cmd "docker exec workhorse-postgres psql -U postgres -d workhorse -c 'SELECT slug, priority FROM projects ORDER BY priority, slug;'" \
+ssh_cmd "docker exec workhorse-postgres psql -U workhorse_user -d workhorse -c 'SELECT slug, priority FROM projects ORDER BY priority, slug;'" \
   || fail "Querying projects"
 
 ###############################################################################
