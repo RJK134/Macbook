@@ -1,0 +1,85 @@
+{
+  "name": "HMGCC SPA - Research & Document Library Builder",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "days", "daysInterval": 1, "triggerAtHour": 5, "triggerAtMinute": 0 }] } },
+      "name": "Daily 5am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 400]
+    },
+    { "parameters": { "url": "https://www.ncsc.gov.uk/api/1/services/v1/rss-feed.xml" }, "name": "NCSC Publications", "type": "n8n-nodes-base.rssFeedRead", "typeVersion": 1, "position": [300, 100] },
+    { "parameters": { "url": "https://www.gov.uk/search/all.atom?keywords=cyber+security+intelligence+communications+cryptography&order=updated-newest" }, "name": "Gov.uk Cyber Security", "type": "n8n-nodes-base.rssFeedRead", "typeVersion": 1, "position": [300, 250] },
+    { "parameters": { "url": "http://export.arxiv.org/rss/cs.CR" }, "name": "arXiv Cryptography", "type": "n8n-nodes-base.rssFeedRead", "typeVersion": 1, "position": [300, 400] },
+    { "parameters": { "url": "https://gds.blog.gov.uk/feed/" }, "name": "GDS Blog", "type": "n8n-nodes-base.rssFeedRead", "typeVersion": 1, "position": [300, 550] },
+    { "parameters": { "url": "https://www.gov.uk/search/all.atom?keywords=single+page+application+digital+service+design+system&order=updated-newest" }, "name": "Gov.uk Digital Service", "type": "n8n-nodes-base.rssFeedRead", "typeVersion": 1, "position": [300, 700] },
+    { "parameters": { "url": "https://www.gov.uk/search/all.atom?keywords=artificial+intelligence+standards+assurance+governance&order=updated-newest" }, "name": "Gov.uk AI Standards", "type": "n8n-nodes-base.rssFeedRead", "typeVersion": 1, "position": [300, 850] },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "var items = $input.all();\nvar results = [];\nvar now = new Date().toISOString();\n\nfor (var i = 0; i < items.length; i++) {\n  var data = items[i].json;\n  var title = data.title || 'Untitled';\n  var link = data.link || data.url || data.guid || '';\n  var summary = (data.contentSnippet || data.content || data.description || '').replace(/<[^>]*>/g, '').trim();\n  if (summary.length > 600) summary = summary.substring(0, 597) + '...';\n  var source = data.creator || data.author || 'Unknown';\n  var text = (title + ' ' + summary).toLowerCase();\n  var category = 'reference';\n  var priority = 3;\n  if (text.indexOf('vulnerability') >= 0 || text.indexOf('threat') >= 0 || text.indexOf('advisory') >= 0) { category = 'threat-intel'; priority = 1; }\n  else if (text.indexOf('standard') >= 0 || text.indexOf('guidance') >= 0 || text.indexOf('framework') >= 0 || text.indexOf('policy') >= 0) { category = 'standards-policy'; priority = 2; }\n  else if (text.indexOf('cryptograph') >= 0 || text.indexOf('encryption') >= 0 || text.indexOf('post-quantum') >= 0) { category = 'cryptography'; priority = 2; }\n  else if (text.indexOf('research') >= 0 || text.indexOf('paper') >= 0 || text.indexOf('study') >= 0) { category = 'research-academic'; priority = 3; }\n  else if (text.indexOf('design system') >= 0 || text.indexOf('gds') >= 0 || text.indexOf('single page') >= 0 || text.indexOf('accessibility') >= 0) { category = 'spa-design'; priority = 2; }\n  results.push({ json: { title: title, url: link, summary: summary, source: source, discovered_at: now, category: category, priority: priority, note_type: 'reference-library' } });\n}\nvar seen = {};\nvar unique = [];\nfor (var j = 0; j < results.length; j++) {\n  var u = results[j].json.url;\n  if (u && !seen[u]) { seen[u] = true; unique.push(results[j]); }\n}\nunique.sort(function(a, b) { return a.json.priority - b.json.priority; });\nreturn unique.length > 0 ? unique : [{ json: { title: 'No new documents today', url: '', summary: '', source: 'scanner', category: 'none', priority: 9, note_type: 'reference-library', discovered_at: now } }];"
+      },
+      "name": "Categorise Documents",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO notes (project_id, related_type, note_type, content, tags)\nSELECT p.id, 'document', 'reference-library', $1, string_to_array($2, ',')\nFROM projects p WHERE p.slug = 'sjms'\nAND NOT EXISTS (SELECT 1 FROM notes n WHERE n.content LIKE ('%' || $3 || '%') AND n.note_type = 'reference-library')\nRETURNING id;",
+        "options": { "queryReplacement": "={{ $json.title + ' | ' + $json.url + ' | ' + $json.summary }}, {{ $json.category + ',' + $json.source }}, {{ $json.url }}" }
+      },
+      "name": "Store in Library",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [900, 400],
+      "credentials": { "postgres": { "id": "CONFIGURE_ME", "name": "Workhorse Postgres" } }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "var items = $('Categorise Documents').all();\nvar now = new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });\nvar groups = {};\nfor (var i = 0; i < items.length; i++) {\n  var cat = items[i].json.category || 'other';\n  if (!groups[cat]) groups[cat] = [];\n  groups[cat].push(items[i].json);\n}\nvar labels = { 'threat-intel': 'Threat Intelligence & Advisories (Priority)', 'standards-policy': 'Standards, Policy & Guidance', 'cryptography': 'Cryptography & Encryption', 'spa-design': 'SPA Design, GDS & Accessibility', 'research-academic': 'Research Papers & Analysis', 'reference': 'Reference Materials', 'none': 'No new items' };\nvar colors = { 'threat-intel': '#e74c3c', 'standards-policy': '#3498db', 'cryptography': '#9b59b6', 'spa-design': '#1abc9c', 'research-academic': '#f39c12', 'reference': '#95a5a6', 'none': '#bdc3c7' };\nvar html = '<div style=\"font-family:Arial,sans-serif;max-width:750px;margin:0 auto;\"><h1 style=\"color:#2c3e50;\">HMGCC SPA - Research Library Update</h1>';\nhtml += '<p style=\"color:#666;\">' + now + ' - ' + items.length + ' documents processed</p><hr>';\nvar categoryOrder = ['threat-intel', 'standards-policy', 'cryptography', 'spa-design', 'research-academic', 'reference', 'none'];\nfor (var c = 0; c < categoryOrder.length; c++) {\n  var catKey = categoryOrder[c];\n  if (!groups[catKey] || groups[catKey].length === 0) continue;\n  var entries = groups[catKey];\n  var color = colors[catKey] || '#34495e';\n  html += '<h2 style=\"color:' + color + ';border-bottom:2px solid ' + color + ';padding-bottom:5px;\">' + (labels[catKey] || catKey) + ' (' + entries.length + ')</h2><ul style=\"list-style:none;padding:0;\">';\n  for (var e = 0; e < entries.length; e++) {\n    html += '<li style=\"margin-bottom:12px;padding:10px;background:#f9f9f9;border-left:3px solid ' + color + ';border-radius:4px;\">';\n    if (entries[e].url) html += '<strong><a href=\"' + entries[e].url + '\" style=\"color:' + color + ';\">' + entries[e].title + '</a></strong>';\n    else html += '<strong>' + entries[e].title + '</strong>';\n    if (entries[e].summary) html += '<br><span style=\"color:#555;font-size:0.9em;\">' + entries[e].summary.substring(0, 280) + '</span>';\n    html += '<br><small style=\"color:#999;\">Source: ' + entries[e].source + '</small></li>';\n  }\n  html += '</ul>';\n}\nhtml += '<hr><p style=\"color:#999;font-size:0.8em;\">HMGCC SPA Research Library Builder - Workhorse</p></div>';\nreturn [{ json: { subject: 'HMGCC SPA Library Update - ' + now, html: html } }];"
+      },
+      "name": "Build Library Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1150, 400]
+    },
+    {
+      "parameters": {
+        "resource": "message", "operation": "send",
+        "sendTo": "richardknapp134@gmail.com",
+        "subject": "={{ $json.subject }}", "emailType": "html", "message": "={{ $json.html }}",
+        "options": { "appendAttribution": false }
+      },
+      "name": "Send Library Update",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1400, 400],
+      "credentials": { "gmailOAuth2": { "id": "CONFIGURE_ME", "name": "Gmail" } }
+    }
+  ],
+  "connections": {
+    "Daily 5am": { "main": [[
+      { "node": "NCSC Publications", "type": "main", "index": 0 },
+      { "node": "Gov.uk Cyber Security", "type": "main", "index": 0 },
+      { "node": "arXiv Cryptography", "type": "main", "index": 0 },
+      { "node": "GDS Blog", "type": "main", "index": 0 },
+      { "node": "Gov.uk Digital Service", "type": "main", "index": 0 },
+      { "node": "Gov.uk AI Standards", "type": "main", "index": 0 }
+    ]] },
+    "NCSC Publications": { "main": [[{ "node": "Categorise Documents", "type": "main", "index": 0 }]] },
+    "Gov.uk Cyber Security": { "main": [[{ "node": "Categorise Documents", "type": "main", "index": 0 }]] },
+    "arXiv Cryptography": { "main": [[{ "node": "Categorise Documents", "type": "main", "index": 0 }]] },
+    "GDS Blog": { "main": [[{ "node": "Categorise Documents", "type": "main", "index": 0 }]] },
+    "Gov.uk Digital Service": { "main": [[{ "node": "Categorise Documents", "type": "main", "index": 0 }]] },
+    "Gov.uk AI Standards": { "main": [[{ "node": "Categorise Documents", "type": "main", "index": 0 }]] },
+    "Categorise Documents": { "main": [[{ "node": "Store in Library", "type": "main", "index": 0 }]] },
+    "Store in Library": { "main": [[{ "node": "Build Library Email", "type": "main", "index": 0 }]] },
+    "Build Library Email": { "main": [[{ "node": "Send Library Update", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

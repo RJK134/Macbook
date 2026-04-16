@@ -1,0 +1,97 @@
+{
+  "name": "HERM & HE Academic Management Landscape Scanner",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "weeks", "weeksInterval": 1, "triggerAtDay": [2], "triggerAtHour": 4, "triggerAtMinute": 0 }] } },
+      "name": "Weekly Tuesday 4am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 450]
+    },
+    { "parameters": { "url": "https://wonkhe.com/feed/" }, "name": "WonkHE", "type": "n8n-nodes-base.rssFeedRead", "typeVersion": 1, "position": [300, 100] },
+    { "parameters": { "url": "https://www.hepi.ac.uk/feed/" }, "name": "HEPI", "type": "n8n-nodes-base.rssFeedRead", "typeVersion": 1, "position": [300, 250] },
+    { "parameters": { "url": "https://www.timeshighereducation.com/content/rss" }, "name": "Times Higher Education", "type": "n8n-nodes-base.rssFeedRead", "typeVersion": 1, "position": [300, 400] },
+    { "parameters": { "url": "https://www.jisc.ac.uk/rss/news" }, "name": "Jisc News", "type": "n8n-nodes-base.rssFeedRead", "typeVersion": 1, "position": [300, 550] },
+    { "parameters": { "url": "https://www.gov.uk/search/all.atom?keywords=higher+education+management+academic+student+university&order=updated-newest" }, "name": "Gov.uk HE Management", "type": "n8n-nodes-base.rssFeedRead", "typeVersion": 1, "position": [300, 700] },
+    { "parameters": { "url": "https://www.gov.uk/search/all.atom?keywords=office+for+students+OfS+regulation+university&order=updated-newest" }, "name": "Gov.uk OfS", "type": "n8n-nodes-base.rssFeedRead", "typeVersion": 1, "position": [300, 850] },
+    { "parameters": { "url": "https://www.gov.uk/search/all.atom?keywords=HESA+student+data+higher+education+statistics&order=updated-newest" }, "name": "Gov.uk HESA Data", "type": "n8n-nodes-base.rssFeedRead", "typeVersion": 1, "position": [300, 1000] },
+    {
+      "parameters": { "url": "https://www.universitybusiness.co.uk/feed/", "options": { "response": { "response": { "neverError": true } }, "timeout": 30000 } },
+      "name": "University Business",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, 1150]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "var items = $input.all();\nvar results = [];\nvar now = new Date().toISOString();\nvar vendorKeywords = ['tribal', 'ellucian', 'unit4', 'technologyone', 'aptem', 'sits', 'banner', 'peoplesoft', 'workday', 'salesforce education', 'oneacademic', 'digital campus', 'thesis', 'blackbaud'];\nvar hermKeywords = ['herm', 'higher education reference model', 'reference model', 'capability model', 'process model'];\nvar productKeywords = ['launch', 'release', 'new feature', 'partnership', 'acquisition', 'integration', 'platform'];\nvar regulatoryKeywords = ['ofs', 'office for students', 'regulation', 'hesa', 'quality', 'condition', 'compliance', 'tef', 'ref'];\nvar aiEdKeywords = ['artificial intelligence', 'machine learning', 'chatgpt', 'llm', 'automation', 'marking', 'assessment ai'];\n\nfor (var i = 0; i < items.length; i++) {\n  var data = items[i].json;\n  var title = data.title || 'Untitled';\n  var link = data.link || data.url || data.guid || '';\n  var summary = (data.contentSnippet || data.content || data.description || '').replace(/<[^>]*>/g, '').trim();\n  if (summary.length > 600) summary = summary.substring(0, 597) + '...';\n  var source = data.creator || data.author || 'HE Source';\n  var text = (title + ' ' + summary).toLowerCase();\n  var category = 'sector-news';\n  var priority = 3;\n  var matchedVendors = [];\n  for (var v = 0; v < vendorKeywords.length; v++) { if (text.indexOf(vendorKeywords[v]) >= 0) matchedVendors.push(vendorKeywords[v]); }\n  if (matchedVendors.length > 0) { category = 'vendor-intel'; priority = 1; }\n  for (var h = 0; h < hermKeywords.length; h++) { if (text.indexOf(hermKeywords[h]) >= 0) { category = 'herm-model'; priority = 1; break; } }\n  if (category === 'sector-news') { for (var p = 0; p < productKeywords.length; p++) { if (text.indexOf(productKeywords[p]) >= 0) { category = 'product-update'; priority = 2; break; } } }\n  if (category === 'sector-news') { for (var r = 0; r < regulatoryKeywords.length; r++) { if (text.indexOf(regulatoryKeywords[r]) >= 0) { category = 'regulatory'; priority = 2; break; } } }\n  if (category === 'sector-news') { for (var a = 0; a < aiEdKeywords.length; a++) { if (text.indexOf(aiEdKeywords[a]) >= 0) { category = 'ai-in-education'; priority = 2; break; } } }\n  results.push({ json: { title: title, url: link, summary: summary, source: source, discovered_at: now, category: category, priority: priority, matched_vendors: matchedVendors.join(', '), signal_type: 'he-landscape' } });\n}\nvar seen = {};\nvar unique = [];\nfor (var j = 0; j < results.length; j++) {\n  var u = results[j].json.url || results[j].json.title;\n  if (u && !seen[u]) { seen[u] = true; unique.push(results[j]); }\n}\nunique.sort(function(a, b) { return a.json.priority - b.json.priority; });\nreturn unique.length > 0 ? unique : [{ json: { title: 'No HE landscape updates this week', url: '', summary: '', source: 'scanner', category: 'none', priority: 9, matched_vendors: '', signal_type: 'he-landscape', discovered_at: now } }];"
+      },
+      "name": "Classify HE Signals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 450]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO market_signals (project_id, signal_type, title, summary, source_url, region, relevance_score)\nSELECT p.id, $1, $2, $3, $4, 'UK', (4 - LEAST($5::int, 3))\nFROM projects p WHERE p.slug = 'sjms'\nAND NOT EXISTS (SELECT 1 FROM market_signals m WHERE m.title = $2 AND m.signal_type = $1)\nRETURNING id;",
+        "options": { "queryReplacement": "={{ $json.signal_type }}, {{ $json.title }}, {{ $json.summary }}, {{ $json.url }}, {{ $json.priority }}" }
+      },
+      "name": "Store HE Signal",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [900, 450],
+      "credentials": { "postgres": { "id": "CONFIGURE_ME", "name": "Workhorse Postgres" } }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "var items = $('Classify HE Signals').all();\nvar now = new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });\nvar groups = {};\nfor (var i = 0; i < items.length; i++) {\n  var cat = items[i].json.category || 'other';\n  if (!groups[cat]) groups[cat] = [];\n  groups[cat].push(items[i].json);\n}\nvar labels = { 'herm-model': 'HERM Model Updates (Priority)', 'vendor-intel': 'Vendor Intelligence', 'product-update': 'Product Launches & Updates', 'regulatory': 'Regulatory & Compliance (OfS, HESA)', 'ai-in-education': 'AI in Higher Education', 'sector-news': 'Sector News & Analysis', 'none': 'No new items' };\nvar colors = { 'herm-model': '#8e44ad', 'vendor-intel': '#e67e22', 'product-update': '#27ae60', 'regulatory': '#c0392b', 'ai-in-education': '#2980b9', 'sector-news': '#34495e', 'none': '#bdc3c7' };\nvar html = '<div style=\"font-family:Arial,sans-serif;max-width:750px;margin:0 auto;\"><h1 style=\"color:#2c3e50;\">HERM & HE Academic Management Landscape</h1>';\nhtml += '<p style=\"color:#666;\">Weekly brief - ' + now + ' - ' + items.length + ' signals</p><hr>';\nhtml += '<div style=\"background:#ecf0f1;padding:12px;border-radius:5px;margin-bottom:20px;\"><strong>Coverage:</strong> vendor moves, HERM updates, OfS/HESA policy, product launches, AI adoption</div>';\nvar categoryOrder = ['herm-model', 'vendor-intel', 'product-update', 'ai-in-education', 'regulatory', 'sector-news', 'none'];\nfor (var c = 0; c < categoryOrder.length; c++) {\n  var catKey = categoryOrder[c];\n  if (!groups[catKey] || groups[catKey].length === 0) continue;\n  var entries = groups[catKey];\n  var color = colors[catKey] || '#34495e';\n  html += '<h2 style=\"color:' + color + ';border-bottom:2px solid ' + color + ';padding-bottom:5px;\">' + (labels[catKey] || catKey) + ' (' + entries.length + ')</h2><ul style=\"list-style:none;padding:0;\">';\n  for (var e = 0; e < entries.length; e++) {\n    html += '<li style=\"margin-bottom:12px;padding:10px;background:#f9f9f9;border-left:3px solid ' + color + ';border-radius:4px;\">';\n    if (entries[e].url) html += '<strong><a href=\"' + entries[e].url + '\" style=\"color:' + color + ';\">' + entries[e].title + '</a></strong>';\n    else html += '<strong>' + entries[e].title + '</strong>';\n    if (entries[e].matched_vendors) html += ' <span style=\"background:#fff3cd;color:#856404;padding:2px 6px;border-radius:3px;font-size:0.8em;\">Vendors: ' + entries[e].matched_vendors + '</span>';\n    if (entries[e].summary) html += '<br><span style=\"color:#555;font-size:0.9em;\">' + entries[e].summary.substring(0, 280) + '</span>';\n    html += '<br><small style=\"color:#999;\">Source: ' + entries[e].source + '</small></li>';\n  }\n  html += '</ul>';\n}\nhtml += '<hr><p style=\"color:#999;font-size:0.8em;\">HERM Landscape Scanner - Workhorse</p></div>';\nreturn [{ json: { subject: 'HERM & HE Management Weekly - ' + now, html: html } }];"
+      },
+      "name": "Build HERM Brief",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1150, 450]
+    },
+    {
+      "parameters": {
+        "resource": "message", "operation": "send",
+        "sendTo": "richardknapp134@gmail.com",
+        "subject": "={{ $json.subject }}", "emailType": "html", "message": "={{ $json.html }}",
+        "options": { "appendAttribution": false }
+      },
+      "name": "Send Weekly Brief",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1400, 450],
+      "credentials": { "gmailOAuth2": { "id": "CONFIGURE_ME", "name": "Gmail" } }
+    }
+  ],
+  "connections": {
+    "Weekly Tuesday 4am": { "main": [[
+      { "node": "WonkHE", "type": "main", "index": 0 },
+      { "node": "HEPI", "type": "main", "index": 0 },
+      { "node": "Times Higher Education", "type": "main", "index": 0 },
+      { "node": "Jisc News", "type": "main", "index": 0 },
+      { "node": "Gov.uk HE Management", "type": "main", "index": 0 },
+      { "node": "Gov.uk OfS", "type": "main", "index": 0 },
+      { "node": "Gov.uk HESA Data", "type": "main", "index": 0 },
+      { "node": "University Business", "type": "main", "index": 0 }
+    ]] },
+    "WonkHE": { "main": [[{ "node": "Classify HE Signals", "type": "main", "index": 0 }]] },
+    "HEPI": { "main": [[{ "node": "Classify HE Signals", "type": "main", "index": 0 }]] },
+    "Times Higher Education": { "main": [[{ "node": "Classify HE Signals", "type": "main", "index": 0 }]] },
+    "Jisc News": { "main": [[{ "node": "Classify HE Signals", "type": "main", "index": 0 }]] },
+    "Gov.uk HE Management": { "main": [[{ "node": "Classify HE Signals", "type": "main", "index": 0 }]] },
+    "Gov.uk OfS": { "main": [[{ "node": "Classify HE Signals", "type": "main", "index": 0 }]] },
+    "Gov.uk HESA Data": { "main": [[{ "node": "Classify HE Signals", "type": "main", "index": 0 }]] },
+    "University Business": { "main": [[{ "node": "Classify HE Signals", "type": "main", "index": 0 }]] },
+    "Classify HE Signals": { "main": [[{ "node": "Store HE Signal", "type": "main", "index": 0 }]] },
+    "Store HE Signal": { "main": [[{ "node": "Build HERM Brief", "type": "main", "index": 0 }]] },
+    "Build HERM Brief": { "main": [[{ "node": "Send Weekly Brief", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}
