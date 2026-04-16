@@ -1,0 +1,46 @@
+{
+  "name": "Workhorse Health Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 6, "triggerAtMinute": 0 }]
+        }
+      },
+      "name": "Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  (SELECT count(*) FROM opportunities WHERE discovered_at > NOW() - INTERVAL '24 hours') AS new_opps_24h,\n  (SELECT count(*) FROM entities WHERE first_seen_at > NOW() - INTERVAL '24 hours') AS new_entities_24h,\n  (SELECT count(*) FROM captures WHERE captured_at > NOW() - INTERVAL '24 hours') AS new_captures_24h,\n  (SELECT count(*) FROM opportunities) AS total_opps,\n  (SELECT count(*) FROM entities) AS total_entities,\n  (SELECT count(*) FROM projects WHERE active = true) AS active_projects,\n  pg_database_size('workhorse') / 1024 / 1024 AS db_size_mb;"
+      },
+      "name": "Query DB Stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [300, 300],
+      "credentials": { "postgres": { "id": "CONFIGURE_ME", "name": "Workhorse Postgres" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO health_logs (disk_used_pct, ram_used_mb, db_size_mb, failed_jobs_24h, backup_ok, notes)\nVALUES (0, 0, $1, 0, false, $2)\nRETURNING id;",
+        "options": {
+          "queryReplacement": "={{ $json.db_size_mb }}, {{ 'Auto health check: ' + $json.total_opps + ' opps, ' + $json.total_entities + ' entities' }}"
+        }
+      },
+      "name": "Log Health",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [600, 300],
+      "credentials": { "postgres": { "id": "CONFIGURE_ME", "name": "Workhorse Postgres" } }
+    }
+  ],
+  "connections": {
+    "Every 6 Hours": { "main": [[{ "node": "Query DB Stats", "type": "main", "index": 0 }]] },
+    "Query DB Stats": { "main": [[{ "node": "Log Health", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

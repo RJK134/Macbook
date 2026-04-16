@@ -1,0 +1,100 @@
+{
+  "name": "AI Enterprise & EdTech Market Scanner",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "weeks", "weeksInterval": 1, "triggerAtDay": [3], "triggerAtHour": 5, "triggerAtMinute": 0 }]
+        }
+      },
+      "name": "Weekly Wednesday 5am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": { "url": "https://www.gov.uk/search/all.atom?keywords=artificial+intelligence+education+technology&order=updated-newest" },
+      "name": "Gov.uk AI+EdTech",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [300, 100]
+    },
+    {
+      "parameters": { "url": "https://feeds.feedburner.com/TechCrunch/startups" },
+      "name": "TechCrunch Startups",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [300, 300]
+    },
+    {
+      "parameters": { "url": "https://www.jisc.ac.uk/rss" },
+      "name": "Jisc EdTech",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [300, 500]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "var items = $input.all();\nvar results = [];\nvar now = new Date().toISOString();\nvar keywords = ['ai', 'artificial intelligence', 'machine learning', 'edtech', 'education technology', 'student management', 'academic', 'marking', 'assessment', 'lms', 'learning management', 'saas', 'enterprise software'];\n\nfor (var i = 0; i < items.length; i++) {\n  var data = items[i].json;\n  var title = data.title || '';\n  var summary = (data.contentSnippet || data.description || '').replace(/<[^>]*>/g, '');\n  var text = (title + ' ' + summary).toLowerCase();\n  \n  // Check if relevant to AI/EdTech\n  var relevant = false;\n  for (var k = 0; k < keywords.length; k++) {\n    if (text.indexOf(keywords[k]) >= 0) { relevant = true; break; }\n  }\n  if (!relevant) continue;\n  \n  results.push({ json: {\n    signal_type: 'market-intel',\n    title: title,\n    summary: summary.substring(0, 500),\n    source_url: data.link || data.url || '',\n    region: 'UK',\n    relevance_score: 3,\n    discovered_at: now\n  }});\n}\n\n// Deduplicate\nvar seen = {};\nvar unique = [];\nfor (var j = 0; j < results.length; j++) {\n  var key = results[j].json.title.toLowerCase();\n  if (!seen[key]) { seen[key] = true; unique.push(results[j]); }\n}\n\nreturn unique.length > 0 ? unique : [{ json: { signal_type: 'market-intel', title: 'No relevant signals this week', summary: '', source_url: '', region: 'UK', relevance_score: 1, discovered_at: now } }];"
+      },
+      "name": "Filter & Categorise",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO market_signals (project_id, signal_type, title, summary, source_url, region, relevance_score)\nSELECT p.id, $1, $2, $3, $4, $5, $6\nFROM projects p WHERE p.slug = 'sjms'\nAND NOT EXISTS (SELECT 1 FROM market_signals m WHERE m.title = $2)\nRETURNING id, title;",
+        "options": {
+          "queryReplacement": "={{ $json.signal_type }}, {{ $json.title }}, {{ $json.summary }}, {{ $json.source_url }}, {{ $json.region }}, {{ $json.relevance_score }}"
+        }
+      },
+      "name": "Store Signals",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [900, 300],
+      "credentials": { "postgres": { "id": "CONFIGURE_ME", "name": "Workhorse Postgres" } }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "var signals = $('Filter & Categorise').all();\nvar now = new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });\nvar html = '<div style=\"font-family:Arial,sans-serif;max-width:700px;margin:0 auto;\">';\nhtml += '<h1 style=\"color:#2c3e50;\">AI & EdTech Market Intelligence</h1>';\nhtml += '<p style=\"color:#666;\">' + now + ' &bull; ' + signals.length + ' signals</p><hr>';\nhtml += '<ul style=\"list-style:none;padding:0;\">';\nfor (var i = 0; i < signals.length; i++) {\n  var s = signals[i].json;\n  html += '<li style=\"margin-bottom:10px;padding:8px;background:#f0f7ff;border-left:3px solid #3498db;\">';\n  if (s.source_url) html += '<strong><a href=\"' + s.source_url + '\">' + s.title + '</a></strong>';\n  else html += '<strong>' + s.title + '</strong>';\n  if (s.summary) html += '<br><span style=\"font-size:0.9em;color:#555;\">' + s.summary.substring(0, 200) + '</span>';\n  html += '</li>';\n}\nhtml += '</ul><hr><p style=\"color:#999;font-size:0.8em;\">AI Market Scanner - Workhorse</p></div>';\nreturn [{ json: { subject: 'AI & EdTech Weekly Brief - ' + now, html: html } }];"
+      },
+      "name": "Build Brief",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1150, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message", "operation": "send",
+        "sendTo": "YOUR_EMAIL@example.com",
+        "subject": "={{ $json.subject }}", "emailType": "html", "message": "={{ $json.html }}",
+        "options": { "appendAttribution": false }
+      },
+      "name": "Email Brief",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1400, 300],
+      "credentials": { "gmailOAuth2": { "id": "CONFIGURE_ME", "name": "Gmail" } }
+    }
+  ],
+  "connections": {
+    "Weekly Wednesday 5am": { "main": [[
+      { "node": "Gov.uk AI+EdTech", "type": "main", "index": 0 },
+      { "node": "TechCrunch Startups", "type": "main", "index": 0 },
+      { "node": "Jisc EdTech", "type": "main", "index": 0 }
+    ]] },
+    "Gov.uk AI+EdTech": { "main": [[{ "node": "Filter & Categorise", "type": "main", "index": 0 }]] },
+    "TechCrunch Startups": { "main": [[{ "node": "Filter & Categorise", "type": "main", "index": 0 }]] },
+    "Jisc EdTech": { "main": [[{ "node": "Filter & Categorise", "type": "main", "index": 0 }]] },
+    "Filter & Categorise": { "main": [[{ "node": "Store Signals", "type": "main", "index": 0 }]] },
+    "Store Signals": { "main": [[{ "node": "Build Brief", "type": "main", "index": 0 }]] },
+    "Build Brief": { "main": [[{ "node": "Email Brief", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

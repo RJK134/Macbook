@@ -1,0 +1,204 @@
+{
+  "name": "Funding & Opportunities Scanner",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 6,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "name": "Daily 6am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://www.gov.uk/search/all.atom?keywords=funding+grants+education+technology&order=updated-newest"
+      },
+      "name": "Gov.uk Funding",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [300, 100]
+    },
+    {
+      "parameters": {
+        "url": "https://www.ukri.org/feed/"
+      },
+      "name": "UKRI Feed",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://www.gov.uk/government/publications.atom?departments%5B%5D=department-for-education"
+      },
+      "name": "DfE Publications",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [300, 500]
+    },
+    {
+      "parameters": {
+        "url": "https://www.gov.uk/search/all.atom?keywords=startup+entrepreneur+innovation+business+support&order=updated-newest"
+      },
+      "name": "Gov.uk Enterprise",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [300, 700]
+    },
+    {
+      "parameters": {
+        "url": "https://www.gov.uk/search/all.atom?keywords=film+arts+creative+industries+funding&order=updated-newest"
+      },
+      "name": "Gov.uk Creative",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [300, 900]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "var items = $input.all();\nvar results = [];\nvar now = new Date().toISOString();\nvar today = now.substring(0, 10);\n\nfor (var i = 0; i < items.length; i++) {\n  var data = items[i].json;\n  var title = data.title || data.name || 'Untitled';\n  var link = data.link || data.url || data.guid || '';\n  var summary = data.contentSnippet || data.content || data.description || '';\n  var source = data.creator || data.author || 'Unknown';\n  var published = data.pubDate || data.isoDate || data.date || now;\n  var category = 'funding-watch';\n\n  // Strip HTML from summary\n  summary = summary.replace(/<[^>]*>/g, '').trim();\n\n  // Categorise based on content\n  var text = (title + ' ' + summary).toLowerCase();\n  if (text.indexOf('film') >= 0 || text.indexOf('screen') >= 0 || text.indexOf('script') >= 0 || text.indexOf('writer') >= 0 || text.indexOf('bfi') >= 0 || text.indexOf('creative') >= 0) {\n    category = 'film-opps';\n  } else if (text.indexOf('education') >= 0 || text.indexOf('course') >= 0 || text.indexOf('university') >= 0 || text.indexOf('student') >= 0 || text.indexOf('higher education') >= 0) {\n    category = 'future-horizons';\n  } else if (text.indexOf('startup') >= 0 || text.indexOf('entrepreneur') >= 0 || text.indexOf('innovation') >= 0 || text.indexOf('enterprise') >= 0) {\n    category = 'funding-watch';\n  }\n\n  // Truncate summary\n  if (summary.length > 500) {\n    summary = summary.substring(0, 497) + '...';\n  }\n\n  results.push({\n    json: {\n      title: title,\n      url: link,\n      summary: summary,\n      source: source,\n      published: published,\n      discovered_at: now,\n      category: category,\n      opp_type: 'funding'\n    }\n  });\n}\n\n// Deduplicate by URL\nvar seen = {};\nvar unique = [];\nfor (var j = 0; j < results.length; j++) {\n  var u = results[j].json.url;\n  if (u && !seen[u]) {\n    seen[u] = true;\n    unique.push(results[j]);\n  }\n}\n\nreturn unique;"
+      },
+      "name": "Categorise & Dedupe",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO opportunities (project_id, opp_type, title, url, funder, status, relevance_score, notes, raw_data, discovered_at)\nSELECT\n  p.id,\n  $1,\n  $2,\n  $3,\n  $4,\n  'open',\n  3,\n  $5,\n  $6::jsonb,\n  NOW()\nFROM projects p\nWHERE p.slug = $7\nAND NOT EXISTS (\n  SELECT 1 FROM opportunities o WHERE o.url = $3\n)\nRETURNING id, title;",
+        "options": {
+          "queryReplacement": "={{ $json.opp_type }}, {{ $json.title }}, {{ $json.url }}, {{ $json.source }}, {{ $json.summary }}, {{ JSON.stringify({published: $json.published, source: $json.source}) }}, {{ $json.category }}"
+        }
+      },
+      "name": "Store in Postgres",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [900, 300],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Workhorse Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "var items = $input.all();\nvar now = new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });\n\n// Get items from the categorise node (2 steps back)\nvar allItems = $('Categorise & Dedupe').all();\n\n// Group by category\nvar groups = {};\nfor (var i = 0; i < allItems.length; i++) {\n  var cat = allItems[i].json.category || 'other';\n  if (!groups[cat]) groups[cat] = [];\n  groups[cat].push(allItems[i].json);\n}\n\nvar labels = {\n  'funding-watch': 'Funding & Grants',\n  'future-horizons': 'Education & Enterprise',\n  'film-opps': 'Film & Screenwriting',\n  'career-opps': 'Career Opportunities',\n  'other': 'Other'\n};\n\nvar html = '<div style=\"font-family:Arial,sans-serif;max-width:700px;margin:0 auto;\">';\nhtml += '<h1 style=\"color:#2c3e50;\">Workhorse Daily Digest</h1>';\nhtml += '<p style=\"color:#666;\">' + now + ' &bull; ' + allItems.length + ' items scanned</p><hr style=\"border:1px solid #eee;\">';\n\nvar cats = Object.keys(groups);\nfor (var c = 0; c < cats.length; c++) {\n  var catKey = cats[c];\n  var entries = groups[catKey];\n  html += '<h2 style=\"color:#34495e;border-bottom:2px solid #3498db;padding-bottom:5px;\">' + (labels[catKey] || catKey) + ' (' + entries.length + ')</h2>';\n  html += '<ul style=\"list-style:none;padding:0;\">';\n  for (var e = 0; e < entries.length; e++) {\n    html += '<li style=\"margin-bottom:12px;padding:10px;background:#f9f9f9;border-radius:5px;\">';\n    html += '<strong><a href=\"' + entries[e].url + '\" style=\"color:#2980b9;text-decoration:none;\">' + entries[e].title + '</a></strong>';\n    if (entries[e].summary) {\n      html += '<br><span style=\"color:#555;font-size:0.9em;\">' + entries[e].summary.substring(0, 250) + '</span>';\n    }\n    html += '<br><small style=\"color:#999;\">Source: ' + entries[e].source + '</small>';\n    html += '</li>';\n  }\n  html += '</ul>';\n}\n\nhtml += '<hr style=\"border:1px solid #eee;\"><p style=\"color:#999;font-size:0.8em;\">Generated by Workhorse MacBook Server &bull; ' + now + '</p>';\nhtml += '</div>';\n\nreturn [{ json: {\n  subject: 'Workhorse Daily Digest - ' + now,\n  html: html,\n  itemCount: allItems.length\n}}];"
+      },
+      "name": "Build Digest Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1150, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "YOUR_EMAIL@example.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "name": "Send Digest",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1400, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "CONFIGURE_ME",
+          "name": "Gmail"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily 6am": {
+      "main": [
+        [
+          { "node": "Gov.uk Funding", "type": "main", "index": 0 },
+          { "node": "UKRI Feed", "type": "main", "index": 0 },
+          { "node": "DfE Publications", "type": "main", "index": 0 },
+          { "node": "Gov.uk Enterprise", "type": "main", "index": 0 },
+          { "node": "Gov.uk Creative", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Gov.uk Funding": {
+      "main": [
+        [
+          { "node": "Categorise & Dedupe", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "UKRI Feed": {
+      "main": [
+        [
+          { "node": "Categorise & Dedupe", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "DfE Publications": {
+      "main": [
+        [
+          { "node": "Categorise & Dedupe", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Gov.uk Enterprise": {
+      "main": [
+        [
+          { "node": "Categorise & Dedupe", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Gov.uk Creative": {
+      "main": [
+        [
+          { "node": "Categorise & Dedupe", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Categorise & Dedupe": {
+      "main": [
+        [
+          { "node": "Store in Postgres", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Store in Postgres": {
+      "main": [
+        [
+          { "node": "Build Digest Email", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Build Digest Email": {
+      "main": [
+        [
+          { "node": "Send Digest", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

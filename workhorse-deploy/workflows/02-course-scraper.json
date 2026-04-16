@@ -1,0 +1,181 @@
+{
+  "name": "Course Data Scraper - MyCourseMatchmaker",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1,
+              "triggerAtDay": [1],
+              "triggerAtHour": 3,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "name": "Weekly Monday 3am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.discoveruni.gov.uk/search/?query=&show=course",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "name": "Discover Uni",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, 100]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.whatuni.com/degree-courses/search?q=computer+science",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "name": "WhatUni CS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.whatuni.com/degree-courses/search?q=business+management",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "name": "WhatUni Business",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, 500]
+    },
+    {
+      "parameters": {
+        "url": "https://www.numbeo.com/cost-of-living/country_result.jsp?country=United+Kingdom",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "name": "Cost of Living UK",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, 700]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "var items = $input.all();\nvar results = [];\nvar now = new Date().toISOString();\n\nfor (var i = 0; i < items.length; i++) {\n  var html = items[i].json.data || items[i].json.body || '';\n  if (typeof html !== 'string') html = JSON.stringify(html);\n  \n  // Extract course-like patterns from HTML\n  // This is a basic extractor - enhance with specific selectors per source\n  var titleMatches = html.match(/<h[1-4][^>]*>([^<]+)<\\/h[1-4]>/gi) || [];\n  var linkMatches = html.match(/href=\"([^\"]*course[^\"]*)\"/gi) || [];\n  \n  for (var t = 0; t < titleMatches.length && t < 50; t++) {\n    var title = titleMatches[t].replace(/<[^>]*>/g, '').trim();\n    if (title.length > 5 && title.length < 200) {\n      results.push({\n        json: {\n          entity_type: 'course',\n          name: title,\n          source_url: items[i].json.url || 'web-scrape',\n          discovered_at: now,\n          raw_data: { title: title, source_index: i }\n        }\n      });\n    }\n  }\n}\n\n// Deduplicate by name\nvar seen = {};\nvar unique = [];\nfor (var j = 0; j < results.length; j++) {\n  var key = results[j].json.name.toLowerCase();\n  if (!seen[key]) {\n    seen[key] = true;\n    unique.push(results[j]);\n  }\n}\n\nreturn unique.length > 0 ? unique : [{ json: { entity_type: 'course', name: 'No new courses found this week', source_url: 'none', discovered_at: now, raw_data: {} } }];"
+      },
+      "name": "Parse Course Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO entities (project_id, entity_type, name, url, raw_data, status)\nSELECT p.id, $1, $2, $3, $4::jsonb, 'active'\nFROM projects p WHERE p.slug = 'mycoursematchmaker'\nAND NOT EXISTS (SELECT 1 FROM entities e WHERE e.name = $2 AND e.project_id = p.id)\nRETURNING id, name;",
+        "options": {
+          "queryReplacement": "={{ $json.entity_type }}, {{ $json.name }}, {{ $json.source_url }}, {{ JSON.stringify($json.raw_data) }}"
+        }
+      },
+      "name": "Store Courses",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [900, 300],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Workhorse Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "var items = $input.all();\nvar allParsed = $('Parse Course Data').all();\nvar now = new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });\n\nvar html = '<div style=\"font-family:Arial,sans-serif;max-width:700px;margin:0 auto;\">';\nhtml += '<h1 style=\"color:#2c3e50;\">MyCourseMatchmaker - Weekly Course Report</h1>';\nhtml += '<p style=\"color:#666;\">' + now + ' &bull; ' + allParsed.length + ' courses processed</p><hr>';\nhtml += '<h2>Courses Found This Week</h2><ul>';\n\nfor (var i = 0; i < allParsed.length && i < 50; i++) {\n  html += '<li>' + allParsed[i].json.name + '</li>';\n}\nhtml += '</ul>';\nhtml += '<hr><p style=\"color:#999;font-size:0.8em;\">MyCourseMatchmaker Workhorse Scanner</p></div>';\n\nreturn [{ json: { subject: 'MyCourseMatchmaker Weekly Report - ' + now, html: html } }];"
+      },
+      "name": "Build Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1150, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "YOUR_EMAIL@example.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": { "appendAttribution": false }
+      },
+      "name": "Email Report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1400, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "CONFIGURE_ME",
+          "name": "Gmail"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Weekly Monday 3am": {
+      "main": [
+        [
+          { "node": "Discover Uni", "type": "main", "index": 0 },
+          { "node": "WhatUni CS", "type": "main", "index": 0 },
+          { "node": "WhatUni Business", "type": "main", "index": 0 },
+          { "node": "Cost of Living UK", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Discover Uni": { "main": [[{ "node": "Parse Course Data", "type": "main", "index": 0 }]] },
+    "WhatUni CS": { "main": [[{ "node": "Parse Course Data", "type": "main", "index": 0 }]] },
+    "WhatUni Business": { "main": [[{ "node": "Parse Course Data", "type": "main", "index": 0 }]] },
+    "Cost of Living UK": { "main": [[{ "node": "Parse Course Data", "type": "main", "index": 0 }]] },
+    "Parse Course Data": { "main": [[{ "node": "Store Courses", "type": "main", "index": 0 }]] },
+    "Store Courses": { "main": [[{ "node": "Build Report", "type": "main", "index": 0 }]] },
+    "Build Report": { "main": [[{ "node": "Email Report", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

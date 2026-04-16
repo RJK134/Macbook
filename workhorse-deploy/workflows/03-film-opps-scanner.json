@@ -1,0 +1,120 @@
+{
+  "name": "Film & Screenwriting Opportunities",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "days", "daysInterval": 1, "triggerAtHour": 7, "triggerAtMinute": 0 }]
+        }
+      },
+      "name": "Daily 7am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://www.bbc.co.uk/writersroom/opportunities",
+        "options": { "response": { "response": { "responseFormat": "text", "neverError": true } }, "timeout": 30000 }
+      },
+      "name": "BBC Writersroom",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, 100]
+    },
+    {
+      "parameters": {
+        "url": "https://www.bfi.org.uk/get-funding-support",
+        "options": { "response": { "response": { "responseFormat": "text", "neverError": true } }, "timeout": 30000 }
+      },
+      "name": "BFI Funding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://www.screenskills.com/opportunities/",
+        "options": { "response": { "response": { "responseFormat": "text", "neverError": true } }, "timeout": 30000 }
+      },
+      "name": "ScreenSkills",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, 500]
+    },
+    {
+      "parameters": {
+        "url": "https://www.gov.uk/search/all.atom?keywords=film+screenwriting+creative+arts+funding&order=updated-newest"
+      },
+      "name": "Gov.uk Film RSS",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [300, 700]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "var items = $input.all();\nvar results = [];\nvar now = new Date().toISOString();\n\nfor (var i = 0; i < items.length; i++) {\n  var data = items[i].json;\n  \n  // Handle RSS items\n  if (data.title && (data.link || data.guid)) {\n    results.push({ json: {\n      title: data.title,\n      url: data.link || data.guid || '',\n      summary: (data.contentSnippet || data.description || '').replace(/<[^>]*>/g, '').substring(0, 500),\n      source: data.creator || 'Gov.uk',\n      opp_type: 'film-funding',\n      discovered_at: now\n    }});\n    continue;\n  }\n  \n  // Handle HTML pages - extract opportunity-like sections\n  var html = data.data || data.body || '';\n  if (typeof html !== 'string') continue;\n  \n  // Extract headings and links that look like opportunities\n  var headings = html.match(/<h[2-4][^>]*>([^<]{5,150})<\\/h[2-4]>/gi) || [];\n  var sourceUrl = data.url || 'web-scrape';\n  \n  for (var h = 0; h < headings.length && h < 30; h++) {\n    var title = headings[h].replace(/<[^>]*>/g, '').trim();\n    var text = title.toLowerCase();\n    if (text.indexOf('fund') >= 0 || text.indexOf('grant') >= 0 || text.indexOf('opportunity') >= 0 || text.indexOf('award') >= 0 || text.indexOf('scheme') >= 0 || text.indexOf('programme') >= 0 || text.indexOf('script') >= 0 || text.indexOf('writer') >= 0 || text.indexOf('talent') >= 0) {\n      results.push({ json: {\n        title: title,\n        url: sourceUrl,\n        summary: 'Found on: ' + sourceUrl,\n        source: sourceUrl.indexOf('bbc') >= 0 ? 'BBC Writersroom' : sourceUrl.indexOf('bfi') >= 0 ? 'BFI' : sourceUrl.indexOf('screenskills') >= 0 ? 'ScreenSkills' : 'Web',\n        opp_type: 'film-funding',\n        discovered_at: now\n      }});\n    }\n  }\n}\n\n// Deduplicate\nvar seen = {};\nvar unique = [];\nfor (var j = 0; j < results.length; j++) {\n  var key = results[j].json.title.toLowerCase();\n  if (!seen[key]) { seen[key] = true; unique.push(results[j]); }\n}\n\nreturn unique.length > 0 ? unique : [{ json: { title: 'No new opportunities today', url: '', summary: '', source: 'scanner', opp_type: 'film-funding', discovered_at: now } }];"
+      },
+      "name": "Parse Opportunities",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO opportunities (project_id, opp_type, title, url, funder, status, notes, discovered_at)\nSELECT p.id, $1, $2, $3, $4, 'open', $5, NOW()\nFROM projects p WHERE p.slug = 'film-opps'\nAND NOT EXISTS (SELECT 1 FROM opportunities o WHERE o.title = $2 AND o.project_id = p.id)\nRETURNING id, title;",
+        "options": {
+          "queryReplacement": "={{ $json.opp_type }}, {{ $json.title }}, {{ $json.url }}, {{ $json.source }}, {{ $json.summary }}"
+        }
+      },
+      "name": "Store in DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [900, 300],
+      "credentials": { "postgres": { "id": "CONFIGURE_ME", "name": "Workhorse Postgres" } }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "var parsed = $('Parse Opportunities').all();\nvar now = new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });\nvar html = '<div style=\"font-family:Arial,sans-serif;max-width:700px;margin:0 auto;\">';\nhtml += '<h1 style=\"color:#2c3e50;\">Film & Screenwriting Opportunities</h1>';\nhtml += '<p style=\"color:#666;\">' + now + ' &bull; ' + parsed.length + ' items</p><hr>';\nhtml += '<ul style=\"list-style:none;padding:0;\">';\nfor (var i = 0; i < parsed.length; i++) {\n  var item = parsed[i].json;\n  html += '<li style=\"margin-bottom:10px;padding:8px;background:#f9f9f9;border-radius:4px;\">';\n  if (item.url) html += '<strong><a href=\"' + item.url + '\" style=\"color:#2980b9;\">' + item.title + '</a></strong>';\n  else html += '<strong>' + item.title + '</strong>';\n  if (item.summary) html += '<br><span style=\"color:#555;font-size:0.9em;\">' + item.summary + '</span>';\n  html += '<br><small style=\"color:#999;\">Source: ' + item.source + '</small></li>';\n}\nhtml += '</ul><hr><p style=\"color:#999;font-size:0.8em;\">Film Opps Scanner - Workhorse</p></div>';\nreturn [{ json: { subject: 'Film & Script Opps - ' + now, html: html } }];"
+      },
+      "name": "Build Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1150, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message", "operation": "send",
+        "sendTo": "YOUR_EMAIL@example.com",
+        "subject": "={{ $json.subject }}", "emailType": "html", "message": "={{ $json.html }}",
+        "options": { "appendAttribution": false }
+      },
+      "name": "Send Alert",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1400, 300],
+      "credentials": { "gmailOAuth2": { "id": "CONFIGURE_ME", "name": "Gmail" } }
+    }
+  ],
+  "connections": {
+    "Daily 7am": { "main": [[
+      { "node": "BBC Writersroom", "type": "main", "index": 0 },
+      { "node": "BFI Funding", "type": "main", "index": 0 },
+      { "node": "ScreenSkills", "type": "main", "index": 0 },
+      { "node": "Gov.uk Film RSS", "type": "main", "index": 0 }
+    ]] },
+    "BBC Writersroom": { "main": [[{ "node": "Parse Opportunities", "type": "main", "index": 0 }]] },
+    "BFI Funding": { "main": [[{ "node": "Parse Opportunities", "type": "main", "index": 0 }]] },
+    "ScreenSkills": { "main": [[{ "node": "Parse Opportunities", "type": "main", "index": 0 }]] },
+    "Gov.uk Film RSS": { "main": [[{ "node": "Parse Opportunities", "type": "main", "index": 0 }]] },
+    "Parse Opportunities": { "main": [[{ "node": "Store in DB", "type": "main", "index": 0 }]] },
+    "Store in DB": { "main": [[{ "node": "Build Alert", "type": "main", "index": 0 }]] },
+    "Build Alert": { "main": [[{ "node": "Send Alert", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}
