@@ -1,0 +1,25 @@
+# Workhorse v2 cron schedule
+# Times in MacBook local timezone (Europe/Zurich).
+# All scrapers run silently overnight; only the master digest emails.
+
+# Daily scrapers — staggered overnight
+0 2 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.courses.orchestrator >> /mnt/usb-archive/logs/scrapers/courses.log 2>&1
+0 3 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.jobs.orchestrator >> /mnt/usb-archive/logs/scrapers/jobs.log 2>&1
+30 3 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.funding.orchestrator >> /mnt/usb-archive/logs/scrapers/funding.log 2>&1
+0 4 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.film.orchestrator >> /mnt/usb-archive/logs/scrapers/film.log 2>&1
+30 4 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.job_trends.orchestrator >> /mnt/usb-archive/logs/scrapers/trends.log 2>&1
+
+# Financial research — once per week (Saturday 05:00) to keep Perplexity costs low
+0 5 * * 6 cd /srv/scrapers && .venv/bin/python -m scrapers.financial.orchestrator >> /mnt/usb-archive/logs/scrapers/financial.log 2>&1
+
+# Gmail IMAP — every 4 hours
+0 */4 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.gmail.imap_monitor >> /mnt/usb-archive/logs/scrapers/gmail.log 2>&1
+
+# Per-area HTML reports — every day at 05:30 (refreshes USB files for drill-down)
+30 5 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.reports.per_area >> /mnt/usb-archive/logs/reports/per_area.log 2>&1
+
+# THE WEEKLY DIGEST EMAIL — Sunday 06:00 (the ONLY recurring email)
+0 6 * * 0 cd /srv/scrapers && .venv/bin/python -m scrapers.reports.master_digest >> /mnt/usb-archive/logs/reports/master.log 2>&1
+
+# Existing DB backup to USB
+30 6 * * * /srv/core/backup.sh
