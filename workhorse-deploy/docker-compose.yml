@@ -50,3 +50,14 @@ services:
       - /srv/core/n8n:/home/node/.n8n
       - /srv/projects:/srv/projects
       - /srv/shared:/srv/shared
+
+  course-api:
+    build: ../api
+    container_name: workhorse-course-api
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://workhorse_user:${POSTGRES_PASSWORD:-changeme_secure}@postgres:5432/workhorse
