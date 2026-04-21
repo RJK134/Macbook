@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS courses (
   first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   active BOOLEAN NOT NULL DEFAULT TRUE,
-  CONSTRAINT courses_provider_title_qual_unique UNIQUE (provider, title, qualification)
+  CONSTRAINT courses_provider_title_qual_unique UNIQUE NULLS NOT DISTINCT (provider, title, qualification)
 );
 CREATE INDEX IF NOT EXISTS courses_provider_idx ON courses(provider);
 CREATE INDEX IF NOT EXISTS courses_subject_idx ON courses(subject_area);
@@ -61,6 +61,10 @@ CREATE TABLE IF NOT EXISTS cost_of_living (
   CONSTRAINT cost_of_living_city_country_unique UNIQUE (city, country)
 );
 CREATE INDEX IF NOT EXISTS cost_of_living_country_idx ON cost_of_living(country);
+DROP TRIGGER IF EXISTS trg_cost_of_living_updated ON cost_of_living;
+CREATE TRIGGER trg_cost_of_living_updated
+  BEFORE UPDATE ON cost_of_living
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 ------------------------------------------------------------
 -- Job trends (emerging skills, future jobs, sector growth)
