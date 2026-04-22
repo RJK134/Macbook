@@ -13,10 +13,7 @@ import psycopg
 from fastapi import FastAPI, HTTPException, Query
 from psycopg.rows import dict_row
 
-DB_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://workhorse_user:Wh0rse2026pg!@postgres:5432/workhorse",
-)
+DB_URL = os.environ["DATABASE_URL"]
 
 app = FastAPI(
     title="Workhorse Course API",
