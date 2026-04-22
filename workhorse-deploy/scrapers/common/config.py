@@ -35,6 +35,8 @@ COMPANIES_HOUSE_API_KEY = os.environ.get("COMPANIES_HOUSE_API_KEY", "")
 
 
 def database_url() -> str:
+    from urllib.parse import quote_plus
     return (
-        f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+        f"postgresql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}"
+        f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     )

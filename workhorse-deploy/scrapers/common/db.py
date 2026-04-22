@@ -39,20 +39,6 @@ def fetch_one(sql: str, params: tuple | dict | None = None) -> dict[str, Any] | 
             return cur.fetchone()
 
 
-def upsert_many(
-    sql: str,
-    rows: list[tuple],
-) -> int:
-    """Bulk execute parameterised SQL across many rows. Returns total rowcount."""
-    if not rows:
-        return 0
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.executemany(sql, rows)
-            conn.commit()
-            return cur.rowcount
-
-
 def start_scraper_run(name: str) -> str:
     """Insert a scraper_runs row with status='running' and return its id."""
     with get_conn() as conn:

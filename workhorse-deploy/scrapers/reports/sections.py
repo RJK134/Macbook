@@ -10,8 +10,14 @@ without re-querying the database.
 from __future__ import annotations
 
 from datetime import date, timedelta
+from html import escape as _esc
 
 from ..common import db
+
+
+def esc(val: object) -> str:
+    """HTML-escape any value for safe embedding in report HTML."""
+    return _esc(str(val)) if val else ""
 
 
 def _week_window() -> tuple[date, date]:
@@ -47,11 +53,11 @@ def courses_section(limit: int = 20) -> dict:
     else:
         html.append('<ul style="padding-left:18px;">')
         for r in rows:
-            line = f'<strong>{r["title"]}</strong> &mdash; {r["provider"]}'
+            line = f'<strong>{esc(r["title"])}</strong> &mdash; {esc(r["provider"])}'
             if r.get("location_city"):
-                line += f' &middot; {r["location_city"]}'
+                line += f' &middot; {esc(r["location_city"])}'
             if r.get("url"):
-                line = f'<a href="{r["url"]}">{line}</a>'
+                line = f'<a href="{esc(r["url"])}">{line}</a>'
             html.append(f'<li>{line}</li>')
         html.append('</ul>')
     return {"title": "Courses", "html": "\n".join(html), "count": new_count["c"], "items": rows}
@@ -77,7 +83,7 @@ def job_trends_section(limit: int = 15) -> dict:
         for r in rows:
             trend_color = {"growing": "#27ae60", "declining": "#c0392b"}.get(r.get("trend") or "", "#7f8c8d")
             line = (
-                f'<strong>{r["occupation"]}</strong> '
+                f'<strong>{esc(r["occupation"])}</strong> '
                 f'<span style="color:{trend_color};">[{r.get("trend") or "stable"}]</span>'
             )
             if r.get("skills_required"):
@@ -148,7 +154,7 @@ def funding_section(limit: int = 20) -> dict:
             if r.get("deadline"):
                 deadline = f' &middot; deadline <strong>{r["deadline"]}</strong>'
             line = (
-                f'<strong>{r["title"]}</strong> ({r.get("country") or ""})'
+                f'<strong>{esc(r["title"])}</strong> ({esc(r.get("country"))})'
                 f'{amount}{deadline}'
             )
             if r.get("url"):
@@ -181,7 +187,7 @@ def jobs_section(limit: int = 20) -> dict:
             if r.get("closing_date"):
                 closing = f' &middot; closes <strong>{r["closing_date"]}</strong>'
             line = (
-                f'<strong>{r["title"]}</strong> &mdash; {r.get("employer") or "Unknown"} '
+                f'<strong>{esc(r["title"])}</strong> &mdash; {esc(r.get("employer") or "Unknown")} '
                 f'({r.get("country") or ""}){closing}'
             )
             if r.get("url"):
@@ -215,7 +221,7 @@ def film_section(limit: int = 20) -> dict:
             if r.get("submission_deadline"):
                 deadline = f' &middot; deadline <strong>{r["submission_deadline"]}</strong>'
             line = (
-                f'<strong>{r["title"]}</strong> &mdash; {r.get("organisation") or ""} '
+                f'<strong>{esc(r["title"])}</strong> &mdash; {esc(r.get("organisation"))} '
                 f'<em>({r.get("opp_type") or "opportunity"})</em>{deadline}'
             )
             if r.get("url"):
@@ -247,11 +253,11 @@ def gmail_section(limit: int = 25) -> dict:
             badge = (
                 f'<span style="background:#ecf0f1;color:#34495e;'
                 f'padding:1px 6px;border-radius:3px;font-size:0.8em;'
-                f'margin-right:6px;">{r["category"]}</span>'
+                f'margin-right:6px;">{esc(r["category"])}</span>'
             )
             sender = r.get("from_name") or r.get("from_email") or "Unknown"
             html.append(
-                f'<li>{badge}<strong>{r["subject"]}</strong> &mdash; {sender}</li>'
+                f'<li>{badge}<strong>{esc(r["subject"])}</strong> &mdash; {esc(sender)}</li>'
             )
         html.append('</ul>')
     return {"title": "Gmail", "html": "\n".join(html), "count": len(rows), "items": rows}
