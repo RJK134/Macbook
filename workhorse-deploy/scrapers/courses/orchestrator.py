@@ -1,0 +1,209 @@
+"""Orchestrate all course scrapers, dedupe, and upsert to Postgres."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from typing import Iterable
+
+from ..common import db
+from ..common.logging_setup import get_logger
+from ..common.usb import databases_dir
+from . import complete_uni_guide, cost_of_living, discoveruni, ucas, whatuni
+
+LOGGER = get_logger("courses.orchestrator")
+
+SCRAPERS = [
+    ("discoveruni", discoveruni.scrape),
+    ("whatuni", whatuni.scrape),
+    ("ucas", ucas.scrape),
+    ("cug", complete_uni_guide.scrape),
+]
+
+
+def _dedupe(courses: Iterable[dict]) -> list[dict]:
+    seen: set[tuple[str, str, str]] = set()
+    out: list[dict] = []
+    for c in courses:
+        key = (
+            (c.get("provider") or "").lower().strip(),
+            (c.get("title") or "").lower().strip(),
+            (c.get("qualification") or "").lower().strip(),
+        )
+        if not key[0] or not key[1]:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(c)
+    return out
+
+
+def _upsert_courses(courses: list[dict]) -> tuple[int, int]:
+    """UPSERT into courses. Returns (inserted, updated)."""
+    if not courses:
+        return 0, 0
+
+    inserted = 0
+    updated = 0
+    for c in courses:
+        params = (
+            c.get("ucas_code"),
+            c.get("provider") or "Unknown",
+            c.get("title") or "Untitled",
+            c.get("qualification") or "",
+            c.get("subject_area"),
+            c.get("duration_months"),
+            c.get("study_mode"),
+            c.get("location_city"),
+            c.get("location_country", "UK"),
+            c.get("fees_uk_gbp"),
+            c.get("fees_intl_gbp"),
+            c.get("entry_requirements"),
+            c.get("url"),
+            c.get("source"),
+            c.get("description"),
+            json.dumps(c, default=str),
+        )
+        result = db.fetch_one(
+            """
+            INSERT INTO courses (
+              ucas_code, provider, title, qualification, subject_area,
+              duration_months, study_mode, location_city, location_country,
+              fees_uk_gbp, fees_intl_gbp, entry_requirements, url, source,
+              description, raw_data
+            ) VALUES (
+              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb
+            )
+            ON CONFLICT (provider, title, qualification) DO UPDATE
+              SET last_seen_at = NOW(),
+                  url = COALESCE(EXCLUDED.url, courses.url),
+                  description = COALESCE(EXCLUDED.description, courses.description),
+                  raw_data = courses.raw_data || EXCLUDED.raw_data
+            RETURNING (xmax = 0) AS inserted
+            """,
+            params,
+        )
+        if result and result.get("inserted"):
+            inserted += 1
+        else:
+            updated += 1
+    return inserted, updated
+
+
+def _upsert_cost_of_living(rows: list[dict]) -> tuple[int, int]:
+    if not rows:
+        return 0, 0
+    inserted = updated = 0
+    for r in rows:
+        params = (
+            r["city"],
+            r.get("country", "UK"),
+            r.get("rent_1bed_gbp"),
+            r.get("rent_shared_gbp"),
+            r.get("groceries_monthly_gbp"),
+            r.get("transport_monthly_gbp"),
+            r.get("utilities_monthly_gbp"),
+            r.get("total_estimated_monthly_gbp"),
+            r.get("source"),
+            r.get("source_url"),
+            json.dumps(r, default=str),
+        )
+        res = db.fetch_one(
+            """
+            INSERT INTO cost_of_living (
+              city, country, rent_1bed_gbp, rent_shared_gbp,
+              groceries_monthly_gbp, transport_monthly_gbp,
+              utilities_monthly_gbp, total_estimated_monthly_gbp,
+              source, source_url, raw_data
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+            ON CONFLICT (city, country) DO UPDATE
+              SET rent_1bed_gbp = EXCLUDED.rent_1bed_gbp,
+                  rent_shared_gbp = EXCLUDED.rent_shared_gbp,
+                  groceries_monthly_gbp = EXCLUDED.groceries_monthly_gbp,
+                  transport_monthly_gbp = EXCLUDED.transport_monthly_gbp,
+                  utilities_monthly_gbp = EXCLUDED.utilities_monthly_gbp,
+                  total_estimated_monthly_gbp = EXCLUDED.total_estimated_monthly_gbp,
+                  raw_data = cost_of_living.raw_data || EXCLUDED.raw_data,
+                  updated_at = NOW()
+            RETURNING (xmax = 0) AS inserted
+            """,
+            params,
+        )
+        if res and res.get("inserted"):
+            inserted += 1
+        else:
+            updated += 1
+    return inserted, updated
+
+
+def _export_csv() -> None:
+    """Dump current courses table to /mnt/usb-archive/databases/courses_export.csv."""
+    import csv
+
+    rows = db.fetch_all(
+        "SELECT provider, title, qualification, subject_area, "
+        "location_city, fees_uk_gbp, url, source, last_seen_at "
+        "FROM courses WHERE active ORDER BY provider, title"
+    )
+    if not rows:
+        return
+    path = databases_dir() / "courses_export.csv"
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        for r in rows:
+            writer.writerow(r)
+    LOGGER.info("Wrote %d courses to %s", len(rows), path)
+
+
+def run(dry_run: bool = False) -> None:
+    run_id = db.start_scraper_run("courses.orchestrator")
+    LOGGER.info("Course orchestrator run %s", run_id)
+    try:
+        all_courses: list[dict] = []
+        for name, fn in SCRAPERS:
+            LOGGER.info("Running scraper: %s", name)
+            try:
+                all_courses.extend(fn())
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.exception("Scraper %s failed: %s", name, exc)
+
+        deduped = _dedupe(all_courses)
+        LOGGER.info("Total %d, after dedupe: %d", len(all_courses), len(deduped))
+
+        if dry_run:
+            for c in deduped[:10]:
+                print(c)
+            print(f"... ({len(deduped)} total, dry run — no DB writes)")
+            db.finish_scraper_run(run_id, "dry_run", fetched=len(all_courses))
+            return
+
+        c_inserted, c_updated = _upsert_courses(deduped)
+        LOGGER.info("Courses: %d inserted, %d updated", c_inserted, c_updated)
+
+        col_rows = cost_of_living.scrape()
+        col_inserted, col_updated = _upsert_cost_of_living(col_rows)
+        LOGGER.info("Cost of living: %d inserted, %d updated", col_inserted, col_updated)
+
+        _export_csv()
+
+        db.finish_scraper_run(
+            run_id,
+            "ok",
+            fetched=len(all_courses) + len(col_rows),
+            inserted=c_inserted + col_inserted,
+            updated=c_updated + col_updated,
+        )
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.exception("Orchestrator failed: %s", exc)
+        db.finish_scraper_run(run_id, "error", error=str(exc))
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+    run(dry_run=args.dry_run)

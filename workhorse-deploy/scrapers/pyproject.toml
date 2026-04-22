@@ -1,0 +1,9 @@
+[project]
+name = "workhorse-scrapers"
+version = "0.1.0"
+description = "Workhorse v2 — Python scrapers, research, and reporting"
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["scrapers*"]
