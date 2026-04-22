@@ -52,7 +52,7 @@ def _upsert_courses(courses: list[dict]) -> tuple[int, int]:
             c.get("ucas_code"),
             c.get("provider") or "Unknown",
             c.get("title") or "Untitled",
-            c.get("qualification"),
+            c.get("qualification") or "",
             c.get("subject_area"),
             c.get("duration_months"),
             c.get("study_mode"),

@@ -52,7 +52,7 @@ services:
       - /srv/shared:/srv/shared
 
   course-api:
-    build: ../api
+    build: ./api
     container_name: workhorse-course-api
     restart: unless-stopped
     depends_on:

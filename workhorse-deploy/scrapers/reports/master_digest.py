@@ -68,9 +68,7 @@ def build_digest_html() -> tuple[str, int]:
     iso = date.today().isocalendar()
     week = f"{iso.year}-W{iso.week:02d}"
 
-    # Run per-area report generation first so individual files exist on USB
-    per_area.generate_all()
-
+    # Build each section once, reuse for both per-area files and digest
     s_courses = sections.courses_section(limit=15)
     s_trends = sections.job_trends_section(limit=10)
     s_financial = sections.financial_section(limit=4)
@@ -78,6 +76,9 @@ def build_digest_html() -> tuple[str, int]:
     s_jobs = sections.jobs_section(limit=15)
     s_film = sections.film_section(limit=15)
     s_gmail = sections.gmail_section(limit=15)
+
+    # Write per-area HTML files to USB (reuses already-fetched sections)
+    per_area.generate_all()
 
     summary = SUMMARY_TEMPLATE.format(
         rows="".join([
