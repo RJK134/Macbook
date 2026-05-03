@@ -48,7 +48,7 @@ def _upsert(rows: list[dict]) -> tuple[int, int]:
             (r.get("description") or "")[:4000],
             json.dumps(r.get("raw_data", {}), default=str),
         )
-        db.execute(
+        rowcount = db.execute(
             """
             INSERT INTO investment_signals (
               signal_type, title, company, funder, amount, currency,
@@ -59,7 +59,10 @@ def _upsert(rows: list[dict]) -> tuple[int, int]:
             """,
             params,
         )
-        inserted += 1
+        if rowcount:
+            inserted += 1
+        else:
+            skipped += 1
     return inserted, skipped
 
 

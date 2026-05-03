@@ -85,8 +85,12 @@ def scrape() -> list[dict]:
             answer = resp.get("answer", "")
             citations = resp.get("citations", [])
             lines = [l.strip() for l in answer.split("\n") if l.strip() and len(l.strip()) > 20]
-            for line in lines:
+            for idx, line in enumerate(lines):
                 amount, currency = _parse_amount(line)
+                # Pair each line with its own citation when available so the
+                # url-uniqueness constraint does not collapse all signals from
+                # one query into a single row.
+                url = citations[idx] if idx < len(citations) else None
                 out.append({
                     "signal_type": "funding-round",
                     "title": line[:300],
@@ -98,7 +102,7 @@ def scrape() -> list[dict]:
                     "region": q["region"],
                     "country": q["country"],
                     "sector": q["sector"],
-                    "url": citations[0] if citations else None,
+                    "url": url,
                     "source": "perplexity",
                     "description": answer[:2000],
                     "raw_data": {"query": q["query"], "citations": citations},

@@ -36,8 +36,8 @@ FUNDING_RE = re.compile(
     re.I,
 )
 INVESTMENT_RE = re.compile(
-    r"\b(startup|seed round|series [a-c]|venture capital|angel invest|fundrais|"
-    r"pitch deadline|accelerator|incubat|innosuisse|f6s|swisspreneur|fongit|"
+    r"\b(startup|seed round|series [a-c]|venture capital|angel invest\w*|fundrais\w*|"
+    r"pitch deadline|accelerator|incubat\w*|innosuisse|f6s|swisspreneur|fongit|"
     r"edtech fund|eu-startups|silicon canals|fresh rounds|funding round|"
     r"venture builder|pre-seed)\b",
     re.I,
@@ -58,7 +58,7 @@ COURSE_RE = re.compile(
 )
 LEARNING_RE = re.compile(
     r"\b(claude code|cursor |copilot|github actions?|pull request|"
-    r"merge conflict|build fail|mcp server|n8n |code review|"
+    r"merge conflict|build fail\w*|mcp server|n8n |code review|"
     r"anthropic|openai api|claude shortcut|agents? go|"
     r"scrapes\.ai|skool\.com)\b",
     re.I,

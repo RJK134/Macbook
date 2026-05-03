@@ -24,7 +24,7 @@ blue "Workhorse v2 install"
 sep
 
 # 1. Install Python toolchain
-blue "[1/8] Ensuring Python 3.11 + venv tooling"
+blue "[1/8] Ensuring Python 3.12 + venv tooling"
 if ! command -v python3.12 >/dev/null 2>&1; then
   sudo -A apt-get update
   sudo -A apt-get install -y python3.12 python3.12-venv python3-pip
@@ -57,7 +57,7 @@ green "Venv ready"
 # 4. Make sure .env exists (create from example if missing)
 blue "[4/8] Ensuring .env exists"
 if [ ! -f "$ENV_FILE" ]; then
-  cp "$SCRAPERS_DEST/.env.example" "$ENV_FILE"
+  cp "$SCRAPERS_DEST/scrapers/.env.example" "$ENV_FILE"
   chmod 600 "$ENV_FILE"
   red "  Created $ENV_FILE from template — EDIT IT to set"
   red "  PERPLEXITY_API_KEY, GMAIL_APP_PASSWORD, DB_PASSWORD before next cron run"
@@ -74,14 +74,18 @@ mkdir -p "$USB_ROOT"/backups/{daily,weekly,monthly}
 mkdir -p "$USB_ROOT"/logs/{scrapers,reports}
 green "USB layout ready"
 
-# 6. Apply schema-v2 to Postgres
-blue "[6/8] Applying schema-v2.sql to Postgres"
+# 6. Apply schema-v2 and schema-v3 to Postgres
+blue "[6/8] Applying schema-v2.sql and schema-v3.sql to Postgres"
 DB_PASS=$(grep '^DB_PASSWORD=' "$ENV_FILE" | cut -d'=' -f2- | tr -d '"')
 sudo -A docker cp "$REPO_ROOT/workhorse-deploy/schema-v2.sql" workhorse-postgres:/tmp/schema-v2.sql
 sudo -A docker exec -e PGPASSWORD="$DB_PASS" workhorse-postgres \
     psql -U workhorse_user -d workhorse -f /tmp/schema-v2.sql \
     || fail "schema-v2 apply failed"
-green "Schema v2 applied"
+sudo -A docker cp "$REPO_ROOT/workhorse-deploy/schema-v3.sql" workhorse-postgres:/tmp/schema-v3.sql
+sudo -A docker exec -e PGPASSWORD="$DB_PASS" workhorse-postgres \
+    psql -U workhorse_user -d workhorse -f /tmp/schema-v3.sql \
+    || fail "schema-v3 apply failed"
+green "Schema v2 + v3 applied"
 
 # 7. Install cron
 blue "[7/8] Installing cron schedule"
