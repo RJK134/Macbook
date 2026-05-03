@@ -20,17 +20,9 @@ SCRAPERS = [
 def _upsert(rows: list[dict]) -> tuple[int, int]:
     inserted = skipped = 0
     for r in rows:
-        url = r.get("url") or ""
         title = r.get("title", "")
         if not title:
             continue
-        if url:
-            existing = db.fetch_one(
-                "SELECT id FROM investment_signals WHERE url = %s", (url,)
-            )
-            if existing:
-                skipped += 1
-                continue
         params = (
             r.get("signal_type", "news"),
             title[:300],
@@ -42,7 +34,7 @@ def _upsert(rows: list[dict]) -> tuple[int, int]:
             r.get("region"),
             r.get("country"),
             r.get("sector"),
-            url or None,
+            r.get("url") or None,
             r.get("source", "perplexity"),
             r.get("source_ref"),
             (r.get("description") or "")[:4000],
@@ -55,7 +47,7 @@ def _upsert(rows: list[dict]) -> tuple[int, int]:
               stage, region, country, sector, url, source, source_ref,
               description, raw_data
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-            ON CONFLICT (url) DO NOTHING
+            ON CONFLICT (source, source_ref) DO NOTHING
             """,
             params,
         )
