@@ -7,9 +7,10 @@ by PostgreSQL 15, a 1TB SanDisk USB drive, and Python scrapers scheduled
 via cron. Outputs a single consolidated weekly digest email.
 
 ## Key conventions
-- Python 3.11, psycopg 3, httpx, BeautifulSoup. No Flask, no Django.
+- Python 3.12, psycopg 3, httpx, BeautifulSoup. No Flask, no Django.
 - FastAPI for the read-only course API (port 8000).
-- Docker Compose for Postgres + n8n + course-api containers.
+- Docker Compose for the course-api container (connects to external Postgres).
+- Postgres + n8n run as separate Docker containers on the `core_default` network.
 - All scrapers live under `workhorse-deploy/scrapers/` with a common
   infrastructure layer at `scrapers/common/`.
 - Secrets in `/srv/scrapers/.env` (never committed — `.gitignore`d).
@@ -25,7 +26,8 @@ via cron. Outputs a single consolidated weekly digest email.
 ## Project structure
 ```
 workhorse-deploy/
-├── docker-compose.yml, schema.sql, schema-v2.sql
+├── docker-compose.yml          (course-api only; Postgres/n8n separate)
+├── schema.sql, schema-v2.sql, schema-v3.sql
 ├── api/                  (FastAPI course server)
 ├── scrapers/
 │   ├── common/           (db, http, perplexity, usb, email, logging, config)
@@ -35,6 +37,7 @@ workhorse-deploy/
 │   ├── jobs/             (jobs.ac.uk, THE, jobs.ch, swissuniversities)
 │   ├── film/             (BBC Writersroom, BFI, ScreenSkills, Coverfly, Shooting People)
 │   ├── financial/        (Companies House, Perplexity deep research)
+│   ├── investment/       (Perplexity investment signal discovery)
 │   ├── gmail/            (IMAP monitor + classifier)
 │   └── reports/          (sections, per_area, master_digest)
 ├── deploy/               (install_v2.sh, crontab.txt, disable_cloud_workflows.md)

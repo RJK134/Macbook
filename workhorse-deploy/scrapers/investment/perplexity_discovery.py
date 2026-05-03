@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 
 from ..common.logging_setup import get_logger
@@ -77,6 +78,12 @@ def _parse_amount(text: str) -> tuple[float | None, str]:
     return val, currency
 
 
+def _make_source_ref(query: str, line: str, idx: int) -> str:
+    """Deterministic hash for dedup when no citation URL is available."""
+    content = f"{query}:{idx}:{line[:100]}"
+    return hashlib.sha256(content.encode()).hexdigest()[:16]
+
+
 def scrape() -> list[dict]:
     out: list[dict] = []
     for q in QUERIES:
@@ -87,10 +94,8 @@ def scrape() -> list[dict]:
             lines = [l.strip() for l in answer.split("\n") if l.strip() and len(l.strip()) > 20]
             for idx, line in enumerate(lines):
                 amount, currency = _parse_amount(line)
-                # Pair each line with its own citation when available so the
-                # url-uniqueness constraint does not collapse all signals from
-                # one query into a single row.
                 url = citations[idx] if idx < len(citations) else None
+                source_ref = _make_source_ref(q["query"], line, idx)
                 out.append({
                     "signal_type": "funding-round",
                     "title": line[:300],
@@ -104,6 +109,7 @@ def scrape() -> list[dict]:
                     "sector": q["sector"],
                     "url": url,
                     "source": "perplexity",
+                    "source_ref": source_ref,
                     "description": answer[:2000],
                     "raw_data": {"query": q["query"], "citations": citations},
                 })

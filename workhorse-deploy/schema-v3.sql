@@ -19,12 +19,13 @@ CREATE TABLE IF NOT EXISTS investment_signals (
   description TEXT,
   raw_data JSONB,
   discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT investment_url_unique UNIQUE NULLS NOT DISTINCT (url)
+  CONSTRAINT investment_url_unique UNIQUE (url)
 );
 CREATE INDEX IF NOT EXISTS investment_type_idx ON investment_signals(signal_type);
 CREATE INDEX IF NOT EXISTS investment_sector_idx ON investment_signals(sector);
 CREATE INDEX IF NOT EXISTS investment_country_idx ON investment_signals(country);
 CREATE INDEX IF NOT EXISTS investment_discovered_idx ON investment_signals(discovered_at DESC);
+CREATE INDEX IF NOT EXISTS investment_source_ref_idx ON investment_signals(source, source_ref);
 
 GRANT ALL ON ALL TABLES IN SCHEMA public TO workhorse_user;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO workhorse_user;

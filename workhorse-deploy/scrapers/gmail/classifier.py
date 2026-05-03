@@ -57,8 +57,8 @@ COURSE_RE = re.compile(
     re.I,
 )
 LEARNING_RE = re.compile(
-    r"\b(claude code|cursor |copilot|github actions?|pull request|"
-    r"merge conflict|build fail\w*|mcp server|n8n |code review|"
+    r"\b(claude code|cursor\b|copilot|github actions?|pull request|"
+    r"merge conflict|build fail\w*|mcp server|n8n\b|code review|"
     r"anthropic|openai api|claude shortcut|agents? go|"
     r"scrapes\.ai|skool\.com)\b",
     re.I,
@@ -107,7 +107,7 @@ def extract_fields(*, subject: str, body: str, category: str) -> dict:
         m = re.search(r"deadline[:\s]+([A-Za-z0-9 ,/-]{4,40})", body, re.I)
         if m:
             out["deadline"] = m.group(1).strip()
-        m = re.search(r"[£€$][\s]?(\d{1,3}(?:[,\d]{0,10}))(k|m|M)?", body, re.I)
+        m = re.search(r"(?:CHF|Fr\.|[£€$])\s?(\d{1,3}(?:[,\d]{0,10}))(k|m|M)?", body, re.I)
         if m:
             out["amount"] = m.group(0)
     if category == "investment":

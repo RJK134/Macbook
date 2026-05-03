@@ -115,12 +115,6 @@ def _process_uid(M: imaplib.IMAP4_SSL, uid: bytes, *,
     if not message_id:
         return False
 
-    existing = db.fetch_one(
-        "SELECT id FROM gmail_items WHERE message_id = %s", (message_id,)
-    )
-    if existing:
-        return False
-
     from_full = _decode(msg.get("From", ""))
     from_name = ""
     from_addr = from_full
@@ -146,13 +140,16 @@ def _process_uid(M: imaplib.IMAP4_SSL, uid: bytes, *,
             subject=subject, body=body, category=category,
         )
 
-    db.execute(
+    rowcount = db.execute(
         """
         INSERT INTO gmail_items (
           message_id, thread_id, from_email, from_name, subject,
           received_at, category, extracted, body_excerpt, labels
         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
-        ON CONFLICT (message_id) DO NOTHING
+        ON CONFLICT (message_id) DO UPDATE
+          SET labels = array(
+            SELECT DISTINCT unnest(gmail_items.labels || EXCLUDED.labels)
+          )
         """,
         (
             message_id,
@@ -167,7 +164,7 @@ def _process_uid(M: imaplib.IMAP4_SSL, uid: bytes, *,
             [label],
         ),
     )
-    return True
+    return rowcount > 0
 
 
 def run(days: int = LOOKBACK_DAYS, dry_run: bool = False) -> None:

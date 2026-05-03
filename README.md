@@ -12,11 +12,12 @@ Automated research, scraping, and reporting platform running on a MacBook Pro 20
 | **Jobs (EdTech/HE)** | jobs.ac.uk, THE Unijobs, jobs.ch, swissuniversities | Relevance-scored listings for HE management roles |
 | **Film & Script** | BBC Writersroom, BFI, ScreenSkills, Coverfly, Shooting People | Competitions, funding, submissions |
 | **Financial Intel** | Companies House, Perplexity Sonar Pro | EdTech market sizing, vendor financials, competitor tracking |
-| **Gmail Monitor** | IMAP (every 4 hours) | Classified inbox: jobs, funding, film, courses |
+| **Investment Signals** | Perplexity discovery (CH/UK/EU) | Startup rounds, accelerators, grants |
+| **Gmail Monitor** | IMAP (every 4 hours, multi-label) | Classified inbox: jobs, funding, film, investment, courses |
 
 ## Architecture
 
-- **Python 3.11** scrapers with BeautifulSoup + httpx
+- **Python 3.12** scrapers with BeautifulSoup + httpx
 - **PostgreSQL 15** (Docker) with 20+ tables
 - **FastAPI** course server on port 8000
 - **Perplexity API** for deep financial/market research (7-day cache)
@@ -40,9 +41,10 @@ nano /srv/scrapers/.env   # set PERPLEXITY_API_KEY, GMAIL_APP_PASSWORD
 ├── Memory.md              # Project context and decisions
 ├── skills.md              # Capability matrix and schedule
 └── workhorse-deploy/
-    ├── docker-compose.yml  # Postgres + n8n + course-api
+    ├── docker-compose.yml  # course-api (Postgres/n8n run separately)
     ├── schema.sql          # v1 base tables
     ├── schema-v2.sql       # v2 additions (courses, funding, jobs, etc.)
+    ├── schema-v3.sql       # v3 additions (investment_signals)
     ├── api/                # FastAPI course server
     ├── scrapers/           # Python scraping + reporting
     │   ├── common/         # db, http, perplexity, usb, email, config
@@ -52,7 +54,8 @@ nano /srv/scrapers/.env   # set PERPLEXITY_API_KEY, GMAIL_APP_PASSWORD
     │   ├── jobs/           # jobs.ac.uk, THE, jobs.ch, swissuniversities
     │   ├── film/           # BBC, BFI, ScreenSkills, Coverfly
     │   ├── financial/      # Companies House, Perplexity research
-    │   ├── gmail/          # IMAP monitor + classifier
+    │   ├── investment/     # Perplexity investment signal discovery
+    │   ├── gmail/          # IMAP monitor + multi-label classifier
     │   └── reports/        # sections, per_area, master_digest
     └── deploy/             # install_v2.sh, crontab, cloud disable guide
 ```
