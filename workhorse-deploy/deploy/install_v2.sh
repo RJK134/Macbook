@@ -24,25 +24,31 @@ blue "Workhorse v2 install"
 sep
 
 # 1. Install Python toolchain
-blue "[1/8] Ensuring Python 3.11 + venv tooling"
-if ! command -v python3.11 >/dev/null 2>&1; then
-  sudo apt-get update
-  sudo apt-get install -y python3.11 python3.11-venv python3-pip
+blue "[1/8] Ensuring Python 3.12 + venv tooling"
+if ! command -v python3.12 >/dev/null 2>&1; then
+  sudo -A apt-get update
+  sudo -A apt-get install -y python3.12 python3.12-venv python3-pip
 fi
 green "Python OK"
 
 # 2. Sync scraper code to /srv/scrapers
 blue "[2/8] Syncing scrapers to $SCRAPERS_DEST"
-sudo mkdir -p "$SCRAPERS_DEST"
-sudo rsync -a --delete --exclude '.venv' --exclude '__pycache__' --exclude '.env' \
-    "$SCRAPERS_SRC/" "$SCRAPERS_DEST/"
-sudo chown -R "$USER:$USER" "$SCRAPERS_DEST"
+sudo -A mkdir -p "$SCRAPERS_DEST/scrapers"
+# pyproject.toml and requirements.txt live at the project root; the importable
+# package lives under $SCRAPERS_DEST/scrapers/ so `python -m scrapers.X.Y` works.
+sudo -A rsync -a "$SCRAPERS_SRC/pyproject.toml" "$SCRAPERS_SRC/requirements.txt" \
+    "$SCRAPERS_DEST/"
+sudo -A rsync -a --delete --exclude '.venv' --exclude '__pycache__' --exclude '.env' \
+    --exclude 'pyproject.toml' --exclude 'requirements.txt' \
+    "$SCRAPERS_SRC/" "$SCRAPERS_DEST/scrapers/"
+sudo -A touch "$SCRAPERS_DEST/scrapers/__init__.py"
+sudo -A chown -R "$USER:$USER" "$SCRAPERS_DEST"
 green "Code synced"
 
 # 3. Create / update venv + install requirements
 blue "[3/8] Creating venv + installing requirements"
 if [ ! -d "$SCRAPERS_DEST/.venv" ]; then
-  python3.11 -m venv "$SCRAPERS_DEST/.venv"
+  python3.12 -m venv "$SCRAPERS_DEST/.venv"
 fi
 "$SCRAPERS_DEST/.venv/bin/pip" install --upgrade pip
 "$SCRAPERS_DEST/.venv/bin/pip" install -r "$SCRAPERS_DEST/requirements.txt"
@@ -51,7 +57,7 @@ green "Venv ready"
 # 4. Make sure .env exists (create from example if missing)
 blue "[4/8] Ensuring .env exists"
 if [ ! -f "$ENV_FILE" ]; then
-  cp "$SCRAPERS_DEST/.env.example" "$ENV_FILE"
+  cp "$SCRAPERS_DEST/scrapers/.env.example" "$ENV_FILE"
   chmod 600 "$ENV_FILE"
   red "  Created $ENV_FILE from template — EDIT IT to set"
   red "  PERPLEXITY_API_KEY, GMAIL_APP_PASSWORD, DB_PASSWORD before next cron run"
@@ -68,14 +74,18 @@ mkdir -p "$USB_ROOT"/backups/{daily,weekly,monthly}
 mkdir -p "$USB_ROOT"/logs/{scrapers,reports}
 green "USB layout ready"
 
-# 6. Apply schema-v2 to Postgres
-blue "[6/8] Applying schema-v2.sql to Postgres"
+# 6. Apply schema-v2 and schema-v3 to Postgres
+blue "[6/8] Applying schema-v2.sql and schema-v3.sql to Postgres"
 DB_PASS=$(grep '^DB_PASSWORD=' "$ENV_FILE" | cut -d'=' -f2- | tr -d '"')
-docker cp "$REPO_ROOT/workhorse-deploy/schema-v2.sql" workhorse-postgres:/tmp/schema-v2.sql
-docker exec -e PGPASSWORD="$DB_PASS" workhorse-postgres \
+sudo -A docker cp "$REPO_ROOT/workhorse-deploy/schema-v2.sql" workhorse-postgres:/tmp/schema-v2.sql
+sudo -A docker exec -e PGPASSWORD="$DB_PASS" workhorse-postgres \
     psql -U workhorse_user -d workhorse -f /tmp/schema-v2.sql \
     || fail "schema-v2 apply failed"
-green "Schema v2 applied"
+sudo -A docker cp "$REPO_ROOT/workhorse-deploy/schema-v3.sql" workhorse-postgres:/tmp/schema-v3.sql
+sudo -A docker exec -e PGPASSWORD="$DB_PASS" workhorse-postgres \
+    psql -U workhorse_user -d workhorse -f /tmp/schema-v3.sql \
+    || fail "schema-v3 apply failed"
+green "Schema v2 + v3 applied"
 
 # 7. Install cron
 blue "[7/8] Installing cron schedule"
@@ -92,8 +102,8 @@ green "Cron installed (run 'crontab -l' to view)"
 # 8. Build & start FastAPI course server
 blue "[8/8] Building course-api Docker container"
 cd "$REPO_ROOT/workhorse-deploy"
-sudo docker compose build course-api || fail "course-api build"
-sudo docker compose up -d course-api
+sudo -A docker compose build course-api || fail "course-api build"
+sudo -A docker compose up -d course-api
 green "course-api running on http://0.0.0.0:8000"
 
 sep
