@@ -1,8 +1,8 @@
-"""IMAP monitor for the Gmail inbox.
+"""Multi-label IMAP monitor for Gmail.
 
-Connects via IMAPS to imap.gmail.com using a Google App Password (NOT
-the account password). Pulls messages from the last 7 days, classifies
-them via classifier.py, and upserts to the gmail_items table.
+Connects via IMAPS to imap.gmail.com using a Google App Password.
+Scans INBOX plus configured labels, classifies each message, and
+upserts to the gmail_items table.
 
 Idempotent — uses the Message-ID header as the unique key.
 """
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import email
+import email.utils
 import imaplib
 import json
 import sys
@@ -27,6 +28,23 @@ LOGGER = get_logger("gmail.imap")
 IMAP_HOST = "imap.gmail.com"
 IMAP_PORT = 993
 LOOKBACK_DAYS = 7
+
+SCAN_LABELS: list[tuple[str, str | None]] = [
+    ("INBOX", None),
+    ("JAs &- Linkedin", "job-listing"),
+    ("Personal, Writing etc/Screenwriting and Final Draft", "film"),
+    ("Future Horizons/Funding &- UKRI/Swiss and Europe Startup and Funding News", "investment"),
+    ("Future Horizons/Funding &- UKRI/Swiss and Europe Startup and Funding News/Innosuisse &- Company Startup", "investment"),
+    ("Future Horizons/Funding &- UKRI/Swiss and Europe Startup and Funding News/Swiss Startup News and Info", "investment"),
+    ("INBOX/Perplexity Alerts and Reports", "newsletter"),
+    ("INBOX/Product Development/Claude, Cursor, Gitbot and Coding", "learning"),
+    ("INBOX/Git Hub And Cursor Fixes", "learning"),
+    ("Future Horizons/AI and Business Research", "newsletter"),
+    ("Future Horizons/Employment and Skills", "job-listing"),
+    ("Future Horizons/Course Creation", "course"),
+    ("Future Horizons/HEPI, WonkHE, HE &- Ed Sector", "newsletter"),
+    ("Personal, Writing etc/Swiss Education and Employment Opportunities", "job-listing"),
+]
 
 
 def _decode(header_value: str) -> str:
@@ -67,18 +85,27 @@ def _connect() -> imaplib.IMAP4_SSL:
     return M
 
 
-def _fetch_recent(M: imaplib.IMAP4_SSL, days: int) -> list[bytes]:
-    M.select("INBOX")
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%d-%b-%Y")
-    status, data = M.search(None, f'(SINCE "{since}")')
-    if status != "OK":
-        LOGGER.warning("IMAP search failed: %s", status)
+def _quote_label(label: str) -> str:
+    return '"' + label.replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+
+def _fetch_from_label(M: imaplib.IMAP4_SSL, label: str, since: str) -> list[bytes]:
+    try:
+        typ, data = M.select(_quote_label(label), readonly=True)
+        if typ != "OK":
+            LOGGER.warning("Could not select %r: %s", label, data)
+            return []
+    except imaplib.IMAP4.error as exc:
+        LOGGER.warning("Label %r error: %s", label, exc)
         return []
-    return data[0].split() if data and data[0] else []
+    typ, data = M.search(None, f'(SINCE "{since}")')
+    if typ != "OK" or not data or not data[0]:
+        return []
+    return data[0].split()
 
 
-def _process_uid(M: imaplib.IMAP4_SSL, uid: bytes) -> bool:
-    """Process a single message UID. Returns True if newly inserted."""
+def _process_uid(M: imaplib.IMAP4_SSL, uid: bytes, *,
+                 label: str, label_hint: str | None) -> bool:
     status, data = M.fetch(uid, "(RFC822)")
     if status != "OK" or not data or not data[0]:
         return False
@@ -86,12 +113,6 @@ def _process_uid(M: imaplib.IMAP4_SSL, uid: bytes) -> bool:
     msg = email.message_from_bytes(raw)
     message_id = (msg.get("Message-ID") or "").strip().strip("<>")
     if not message_id:
-        return False
-
-    existing = db.fetch_one(
-        "SELECT id FROM gmail_items WHERE message_id = %s", (message_id,)
-    )
-    if existing:
         return False
 
     from_full = _decode(msg.get("From", ""))
@@ -104,28 +125,31 @@ def _process_uid(M: imaplib.IMAP4_SSL, uid: bytes) -> bool:
     received = msg.get("Date", "")
     try:
         received_dt = email.utils.parsedate_to_datetime(received)
-    except Exception:  # noqa: BLE001
+    except Exception:
         received_dt = None
     body = _extract_body(msg)
 
     category = classifier.classify(
         from_email=from_addr, subject=subject, body=body,
+        label_hint=label_hint,
     )
     if category == "ignore":
-        # Still store to avoid re-classifying next run (cheaper than re-fetch).
         extracted = {}
     else:
         extracted = classifier.extract_fields(
             subject=subject, body=body, category=category,
         )
 
-    db.execute(
+    rowcount = db.execute(
         """
         INSERT INTO gmail_items (
           message_id, thread_id, from_email, from_name, subject,
-          received_at, category, extracted, body_excerpt
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
-        ON CONFLICT (message_id) DO NOTHING
+          received_at, category, extracted, body_excerpt, labels
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+        ON CONFLICT (message_id) DO UPDATE
+          SET labels = array(
+            SELECT DISTINCT unnest(gmail_items.labels || EXCLUDED.labels)
+          )
         """,
         (
             message_id,
@@ -137,43 +161,52 @@ def _process_uid(M: imaplib.IMAP4_SSL, uid: bytes) -> bool:
             category,
             json.dumps(extracted),
             body[:2000],
+            [label],
         ),
     )
-    return True
+    return rowcount > 0
 
 
 def run(days: int = LOOKBACK_DAYS, dry_run: bool = False) -> None:
     run_id = db.start_scraper_run("gmail.imap_monitor")
-    LOGGER.info("Gmail IMAP monitor run %s (last %d days)", run_id, days)
+    LOGGER.info("Gmail IMAP monitor run %s (last %d days, %d labels)", run_id, days, len(SCAN_LABELS))
     inserted = 0
     fetched = 0
     try:
         if dry_run:
-            print(f"Dry run — would scan inbox for last {days} days")
+            print(f"Dry run — would scan {len(SCAN_LABELS)} labels for last {days} days")
+            for label, hint in SCAN_LABELS:
+                print(f"  {label} (hint={hint})")
             db.finish_scraper_run(run_id, "dry_run")
             return
         M = _connect()
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%d-%b-%Y")
         try:
-            uids = _fetch_recent(M, days)
-            fetched = len(uids)
-            LOGGER.info("IMAP returned %d messages", fetched)
-            for uid in uids:
-                try:
-                    if _process_uid(M, uid):
-                        inserted += 1
-                except Exception as exc:  # noqa: BLE001
-                    LOGGER.warning("UID %r failed: %s", uid, exc)
+            for label, hint in SCAN_LABELS:
+                uids = _fetch_from_label(M, label, since)
+                label_fetched = len(uids)
+                label_inserted = 0
+                for uid in uids:
+                    try:
+                        if _process_uid(M, uid, label=label, label_hint=hint):
+                            label_inserted += 1
+                    except Exception as exc:
+                        LOGGER.warning("UID %r in %r failed: %s", uid, label, exc)
+                fetched += label_fetched
+                inserted += label_inserted
+                if label_fetched:
+                    LOGGER.info("  %s: %d fetched, %d new", label, label_fetched, label_inserted)
         finally:
             try:
                 M.close()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             M.logout()
-        LOGGER.info("Gmail: %d new items stored", inserted)
+        LOGGER.info("Gmail total: %d fetched, %d new items stored", fetched, inserted)
         db.finish_scraper_run(
             run_id, "ok", fetched=fetched, inserted=inserted, skipped=fetched - inserted
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         LOGGER.exception("Gmail monitor failed: %s", exc)
         db.finish_scraper_run(run_id, "error", error=str(exc), fetched=fetched, inserted=inserted)
         sys.exit(1)

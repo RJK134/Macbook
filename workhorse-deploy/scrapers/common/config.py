@@ -32,6 +32,7 @@ DIGEST_RECIPIENT = os.environ.get("DIGEST_RECIPIENT", "")
 USB_ROOT = Path(os.environ.get("USB_ROOT", "/mnt/usb-archive"))
 
 COMPANIES_HOUSE_API_KEY = os.environ.get("COMPANIES_HOUSE_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 
 def database_url() -> str:
