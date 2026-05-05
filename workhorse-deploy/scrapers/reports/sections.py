@@ -375,3 +375,157 @@ def gmail_section(limit: int = 25) -> dict:
             )
         html.append('</ul>')
     return {"title": "Gmail", "html": "\n".join(html), "count": len(rows), "items": rows}
+
+
+def procurement_section(limit: int = 15) -> dict:
+    start, _ = _week_window()
+    rows = db.fetch_all(
+        """
+        SELECT title, buyer, value_max, currency, deadline_date, source, url, category
+        FROM procurement_opportunities
+        WHERE discovered_at >= %s
+        ORDER BY (deadline_date IS NULL), deadline_date ASC, value_max DESC NULLS LAST
+        LIMIT %s
+        """,
+        (start, limit),
+    )
+    html = ['<h2 style="color:#2c3e50;">Procurement (Future Horizons + builds)</h2>']
+    if not rows:
+        html.append('<p><em>No procurement opportunities discovered this week.</em></p>')
+    else:
+        html.append('<ul style="padding-left:20px;">')
+        for r in rows:
+            value = ""
+            if r.get("value_max"):
+                value = f"{r['currency']} {r['value_max']:,.0f}"
+            deadline = f" — closes {r['deadline_date']}" if r.get("deadline_date") else ""
+            buyer = f" ({esc(r['buyer'])})" if r.get("buyer") else ""
+            html.append(
+                f'<li><strong><a href="{esc(r["url"])}">{esc(r["title"])}</a></strong>'
+                f'{buyer}<br>'
+                f'<span style="color:#666;font-size:0.9em;">{esc(r.get("source"))} '
+                f'· {esc(r.get("category") or "")} · {value}{deadline}</span></li>'
+            )
+        html.append('</ul>')
+    return {"title": "Procurement", "html": "\n".join(html), "count": len(rows), "items": rows}
+
+
+def education_resources_section(limit: int = 15) -> dict:
+    start, _ = _week_window()
+    rows = db.fetch_all(
+        """
+        SELECT subject, level, exam_board, resource_type, title, source, url
+        FROM education_resources
+        WHERE discovered_at >= %s
+        ORDER BY discovered_at DESC
+        LIMIT %s
+        """,
+        (start, limit),
+    )
+    html = ['<h2 style="color:#2c3e50;">Education Resources (Maieus / Maieus2)</h2>']
+    if not rows:
+        html.append('<p><em>No new education resources this week.</em></p>')
+    else:
+        html.append('<ul style="padding-left:20px;">')
+        for r in rows:
+            tag = f"[{r['level'] or '-'} {r.get('exam_board') or ''}]".strip()
+            html.append(
+                f'<li><strong><a href="{esc(r["url"])}">{esc(r["title"])}</a></strong>'
+                f' <span style="color:#888;font-size:0.85em;">{esc(tag)}</span><br>'
+                f'<span style="color:#666;font-size:0.9em;">{esc(r["subject"])} · '
+                f'{esc(r["resource_type"])} · {esc(r["source"])}</span></li>'
+            )
+        html.append('</ul>')
+    return {"title": "Education Resources", "html": "\n".join(html), "count": len(rows), "items": rows}
+
+
+def sen_section(limit: int = 12) -> dict:
+    start, _ = _week_window()
+    rows = db.fetch_all(
+        """
+        SELECT category, title, source, url, applies_to, published_date, description
+        FROM sen_resources
+        WHERE discovered_at >= %s
+        ORDER BY discovered_at DESC
+        LIMIT %s
+        """,
+        (start, limit),
+    )
+    html = ['<h2 style="color:#2c3e50;">SEN &amp; Excluded Learners</h2>']
+    if not rows:
+        html.append('<p><em>No new SEN resources this week.</em></p>')
+    else:
+        html.append('<ul style="padding-left:20px;">')
+        for r in rows:
+            badge = (
+                f'<span style="background:#9b59b6;color:#fff;padding:2px 6px;'
+                f'border-radius:3px;font-size:0.75em;">{esc(r["category"] or "send")}</span>'
+            )
+            html.append(
+                f'<li>{badge} <strong><a href="{esc(r["url"])}">{esc(r["title"])}</a></strong>'
+                f' <span style="color:#888;font-size:0.85em;">{esc(r.get("applies_to") or "")}</span><br>'
+                f'<span style="color:#666;font-size:0.9em;">{esc((r.get("description") or "")[:200])}</span></li>'
+            )
+        html.append('</ul>')
+    return {"title": "SEN", "html": "\n".join(html), "count": len(rows), "items": rows}
+
+
+def shakespeare_section(limit: int = 12) -> dict:
+    start, _ = _week_window()
+    rows = db.fetch_all(
+        """
+        SELECT play, format, audience, resource_type, title, source, url, engagement_score
+        FROM shakespeare_resources
+        WHERE discovered_at >= %s
+        ORDER BY engagement_score DESC NULLS LAST, discovered_at DESC
+        LIMIT %s
+        """,
+        (start, limit),
+    )
+    html = ['<h2 style="color:#2c3e50;">Shakespeare Engagement</h2>']
+    if not rows:
+        html.append('<p><em>No new Shakespeare content discovered this week.</em></p>')
+    else:
+        html.append('<ul style="padding-left:20px;">')
+        for r in rows:
+            play = f' <em>({esc(r["play"])})</em>' if r.get("play") else ""
+            html.append(
+                f'<li><strong><a href="{esc(r["url"])}">{esc(r["title"])}</a></strong>{play}<br>'
+                f'<span style="color:#666;font-size:0.9em;">{esc(r["resource_type"])} · '
+                f'{esc(r.get("format") or "")} · {esc(r.get("audience") or "")} · {esc(r["source"])}</span></li>'
+            )
+        html.append('</ul>')
+    return {"title": "Shakespeare", "html": "\n".join(html), "count": len(rows), "items": rows}
+
+
+def finance_bulletins_section(limit: int = 12) -> dict:
+    start, _ = _week_window()
+    rows = db.fetch_all(
+        """
+        SELECT source, category, title, url, summary, published_date
+        FROM finance_bulletins
+        WHERE discovered_at >= %s
+        ORDER BY published_date DESC NULLS LAST, discovered_at DESC
+        LIMIT %s
+        """,
+        (start, limit),
+    )
+    html = ['<h2 style="color:#2c3e50;">Finance Bulletins (HMRC / FCA / BoE / DfE / ONS)</h2>']
+    if not rows:
+        html.append('<p><em>No new finance bulletins this week.</em></p>')
+    else:
+        html.append('<ul style="padding-left:20px;">')
+        for r in rows:
+            badge_color = {"hmrc": "#e74c3c", "fca": "#3498db", "boe": "#27ae60",
+                           "dfe": "#f39c12", "ons": "#7f8c8d"}.get(r["source"], "#95a5a6")
+            badge = (
+                f'<span style="background:{badge_color};color:#fff;padding:2px 6px;'
+                f'border-radius:3px;font-size:0.75em;">{esc(r["source"].upper())}</span>'
+            )
+            html.append(
+                f'<li>{badge} <strong><a href="{esc(r["url"])}">{esc(r["title"])}</a></strong>'
+                f' <span style="color:#888;font-size:0.85em;">{esc(r["category"] or "")}</span><br>'
+                f'<span style="color:#666;font-size:0.9em;">{esc((r.get("summary") or "")[:180])}</span></li>'
+            )
+        html.append('</ul>')
+    return {"title": "Finance Bulletins", "html": "\n".join(html), "count": len(rows), "items": rows}
