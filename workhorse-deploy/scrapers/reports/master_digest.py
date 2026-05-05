@@ -75,6 +75,8 @@ def build_digest_html() -> tuple[str, int]:
     s_funding = sections.funding_section(limit=15)
     s_jobs = sections.jobs_section(limit=15)
     s_film = sections.film_section(limit=15)
+    s_coursepulse = sections.coursepulse_section(limit=20)
+    s_research = sections.research_section(limit=15)
     s_gmail = sections.gmail_section(limit=15)
 
     # Write per-area HTML files to USB (reuses already-fetched sections)
@@ -83,26 +85,30 @@ def build_digest_html() -> tuple[str, int]:
     summary = SUMMARY_TEMPLATE.format(
         rows="".join([
             _summary_row("Courses (MyCourseMatchmaker)", s_courses["count"], "indexed this week"),
+            _summary_row("CoursePulse (Curriculum Intel)", s_coursepulse["count"], "pathways + insights"),
             _summary_row("Job trends", s_trends["count"], "skill / occupation signals"),
             _summary_row("Financial research", s_financial["count"], "Perplexity topics refreshed"),
             _summary_row("Funding & grants", s_funding["count"], "open opportunities"),
             _summary_row("Jobs (EdTech / HE)", s_jobs["count"], "live listings"),
             _summary_row("Film & script", s_film["count"], "open opportunities"),
+            _summary_row("AI Research (Perplexity + Gemini)", s_research["count"], "dual-engine queries"),
             _summary_row("Inbox (Gmail)", s_gmail["count"], "relevant emails"),
         ])
     )
 
     body = HEADER.format(today=today) + summary
+    body += s_coursepulse["html"]
     body += s_funding["html"]
     body += s_jobs["html"]
     body += s_film["html"]
     body += s_courses["html"]
     body += s_trends["html"]
     body += s_financial["html"]
+    body += s_research["html"]
     body += s_gmail["html"]
     body += FOOTER.format(week=week)
 
-    total = sum(s["count"] for s in [s_courses, s_trends, s_financial, s_funding, s_jobs, s_film, s_gmail])
+    total = sum(s["count"] for s in [s_courses, s_coursepulse, s_trends, s_financial, s_funding, s_jobs, s_film, s_research, s_gmail])
     return body, total
 
 

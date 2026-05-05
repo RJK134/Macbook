@@ -231,6 +231,120 @@ def film_section(limit: int = 20) -> dict:
     return {"title": "Film", "html": "\n".join(html), "count": len(rows), "items": rows}
 
 
+def coursepulse_section(limit: int = 20) -> dict:
+    start, _ = _week_window()
+    pathways = db.fetch_all(
+        """
+        SELECT subject_area, career_title, demand_trend, median_salary_gbp,
+               salary_5yr_gbp, roi_score, skills_overlap, confidence
+        FROM course_career_pathways
+        WHERE updated_at >= %s
+        ORDER BY roi_score DESC NULLS LAST
+        LIMIT %s
+        """,
+        (start, limit),
+    )
+    insights = db.fetch_all(
+        """
+        SELECT insight_type, title, summary, source, region
+        FROM coursepulse_insights
+        WHERE created_at >= %s
+        ORDER BY created_at DESC
+        LIMIT %s
+        """,
+        (start, limit),
+    )
+    html = ['<h2 style="color:#2c3e50;">CoursePulse (Curriculum Intelligence)</h2>']
+
+    if pathways:
+        html.append('<h3 style="color:#34495e;">Career Pathways (updated this week)</h3>')
+        html.append(
+            '<table cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:0.9em;">'
+            '<thead><tr style="background:#ecf0f1;">'
+            '<th align="left">Subject</th><th align="left">Career</th>'
+            '<th align="left">Trend</th><th align="right">Salary</th>'
+            '<th align="right">5yr Salary</th><th align="right">ROI%</th>'
+            '</tr></thead><tbody>'
+        )
+        for p in pathways:
+            trend_color = {"growing": "#27ae60", "declining": "#c0392b"}.get(p.get("demand_trend") or "", "#7f8c8d")
+            salary = f"£{p['median_salary_gbp']:,.0f}" if p.get("median_salary_gbp") else "-"
+            salary5 = f"£{p['salary_5yr_gbp']:,.0f}" if p.get("salary_5yr_gbp") else "-"
+            roi = f"{p['roi_score']:.0f}%" if p.get("roi_score") is not None else "-"
+            html.append(
+                f'<tr style="border-bottom:1px solid #ecf0f1;">'
+                f'<td>{esc(p["subject_area"])}</td>'
+                f'<td><strong>{esc(p["career_title"])}</strong></td>'
+                f'<td style="color:{trend_color};">{p.get("demand_trend") or "?"}</td>'
+                f'<td align="right">{salary}</td>'
+                f'<td align="right">{salary5}</td>'
+                f'<td align="right">{roi}</td></tr>'
+            )
+        html.append('</tbody></table>')
+
+    if insights:
+        html.append('<h3 style="color:#34495e;">Curriculum Insights</h3><ul>')
+        type_labels = {
+            "curriculum-gap": "GAP", "curriculum-risk": "RISK",
+            "emerging-programme": "NEW", "investment-signal": "INVEST",
+            "credential-trend": "CREDENTIAL",
+        }
+        for i in insights:
+            badge_text = type_labels.get(i["insight_type"], i["insight_type"])
+            badge_color = {"GAP": "#e74c3c", "RISK": "#e67e22", "NEW": "#27ae60", "INVEST": "#3498db"}.get(badge_text, "#7f8c8d")
+            html.append(
+                f'<li><span style="background:{badge_color};color:#fff;padding:2px 6px;'
+                f'border-radius:3px;font-size:0.75em;">{badge_text}</span> '
+                f'<strong>{esc(i["title"])}</strong> ({esc(i["source"])} / {esc(i.get("region") or "")})'
+                f'<br><span style="color:#666;font-size:0.9em;">{esc((i["summary"] or "")[:200])}</span></li>'
+            )
+        html.append('</ul>')
+
+    if not pathways and not insights:
+        html.append('<p><em>No CoursePulse data this week — run the orchestrator.</em></p>')
+
+    count = len(pathways) + len(insights)
+    return {"title": "CoursePulse", "html": "\n".join(html), "count": count, "items": pathways + insights}
+
+
+def research_section(limit: int = 15) -> dict:
+    start, _ = _week_window()
+    rows = db.fetch_all(
+        """
+        SELECT topic, region, source, answer, citations, created_at
+        FROM financial_research
+        WHERE created_at >= %s
+        ORDER BY created_at DESC
+        LIMIT %s
+        """,
+        (start, limit),
+    )
+    html = ['<h2 style="color:#2c3e50;">AI Research (Perplexity + Gemini)</h2>']
+    if not rows:
+        html.append('<p><em>No research queries ran this week.</em></p>')
+    else:
+        for r in rows:
+            source_badge = (
+                f'<span style="background:{"#3498db" if r["source"] == "perplexity" else "#e67e22"};'
+                f'color:#fff;padding:2px 8px;border-radius:3px;font-size:0.75em;">'
+                f'{esc(r["source"])}</span>'
+            )
+            html.append(
+                f'<h3 style="margin-bottom:4px;">{source_badge} {esc(r["topic"])} '
+                f'<span style="color:#7f8c8d;font-weight:normal;">({esc(r.get("region") or "")})</span></h3>'
+            )
+            answer = (r["answer"] or "")[:800]
+            answer = answer.replace("\n", "<br>")
+            html.append(f'<div style="margin-bottom:8px;">{answer}{"&hellip;" if len(r["answer"] or "") > 800 else ""}</div>')
+            cits = r.get("citations") or []
+            if cits:
+                links = " &middot; ".join(
+                    f'<a href="{c}">[{i + 1}]</a>' for i, c in enumerate(cits[:6])
+                )
+                html.append(f'<p style="color:#7f8c8d;font-size:0.85em;">Sources: {links}</p>')
+    return {"title": "AI Research", "html": "\n".join(html), "count": len(rows), "items": rows}
+
+
 def gmail_section(limit: int = 25) -> dict:
     start, _ = _week_window()
     rows = db.fetch_all(
