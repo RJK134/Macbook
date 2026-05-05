@@ -22,17 +22,42 @@ FEEDS = [
     "https://www.gov.uk/search/all.atom?keywords=%22apprenticeship%22+%22technical+education%22&content_purpose_supergroup%5B%5D=policy_and_engagement&order=updated-newest",
 ]
 
-REJECT_RE = re.compile(
-    r"(planning\s+application|listed\s+building|licence|premises|"
-    r"Flat \d|property|insolvency|Court |Street |Road |Lane |Avenue |"
-    r"House,|MAN/\d|certificate of)",
+# URL paths that publish content matching our keywords but are NOT
+# labour-market intelligence (tribunal cases, staff bios, traffic
+# decisions, travel advice, generic guidance, board appointments).
+REJECT_URL_RE = re.compile(
+    r"/(employment-tribunal-decisions|traffic-commissioner-regulatory-decisions|"
+    r"foreign-travel-advice|research-for-development-outputs|"
+    r"cma-cases|drug-device-alerts|food-alert)/|"
+    r"/government/people/|"
+    r"/government/organisations/[^/]+/about/|"
+    r"/government/news/(new-appointments-|appointment-of-|appointments-to-)",
     re.I,
 )
 
+REJECT_RE = re.compile(
+    r"^(Mr|Mrs|Ms|Miss|Dr)\s+\w+(\s+\w+)?\s+v\s+|"
+    r"\bv\s+\w[^:]*Ltd:?\s*\d{3,}/\d{4}|"
+    r"(planning\s+application|listed\s+building|premises|certificate of|"
+    r"travel advice|country policy|river conditions|veterinary|"
+    r"appointments?\s+(to|made to)|our governance|procurement at|"
+    r"\bUKSIA\b|bird gathering|insolvency service board|"
+    r"DBS regional|jet fuel|trade mission|holiday(s)? from disruption)",
+    re.I,
+)
+
+# Title or summary must contain at least one strong labour-market signal.
 REQUIRE_RE = re.compile(
-    r"(skill|employ|labour|workforce|apprentice|occupation|job|career|"
-    r"qualification|training|education|wage|salary|hiring|recruitment|"
-    r"graduate|STEM|digital|AI|automation|sector)",
+    r"\b(skill\s*(shortage|gap|need|projection|priority|white paper|policy|strategy)|"
+    r"labour\s+market|workforce|apprentice|occupation|career path|jobs?\s+plan|"
+    r"future skills|priority skills|education and skills|post-?16|"
+    r"employment\s+(rate|trend|statistics|patterns|outcomes|data|projection)|"
+    r"low pay|t\s*levels?|"
+    r"vocational|further education|jobcentre|technical education|"
+    r"sector skills|industry analysis|economic activity|"
+    r"hiring|recruitment trend|wage growth|salary survey|"
+    r"qualification framework|graduate outcomes|"
+    r"AI labour|AI skills|cyber security skills)\b",
     re.I,
 )
 
@@ -50,6 +75,8 @@ def scrape() -> list[dict]:
                 summary = e.get("summary", "")[:1000]
                 text = f"{title} {summary}"
 
+                if REJECT_URL_RE.search(link):
+                    continue
                 if REJECT_RE.search(text):
                     continue
                 if not REQUIRE_RE.search(text):
