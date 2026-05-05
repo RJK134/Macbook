@@ -8,9 +8,46 @@ import sys
 
 from ..common import db
 from ..common.logging_setup import get_logger
-from . import companies_house, perplexity_research
+from . import boe_news, companies_house, perplexity_research, uk_authorities
 
 LOGGER = get_logger("financial.orchestrator")
+
+
+def _store_bulletins(rows: list[dict]) -> int:
+    inserted = 0
+    for r in rows:
+        url = (r.get("url") or "").strip()
+        if not url:
+            continue
+        existing = db.fetch_one(
+            "SELECT id FROM finance_bulletins WHERE url = %s",
+            (url,),
+        )
+        if existing:
+            continue
+        db.execute(
+            """
+            INSERT INTO finance_bulletins (
+              source, category, title, url, summary, published_date,
+              ticker, metric_value, metric_unit, raw_data
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+            ON CONFLICT (url) DO NOTHING
+            """,
+            (
+                r["source"],
+                r.get("category"),
+                r["title"][:300],
+                url,
+                r.get("summary"),
+                r.get("published_date"),
+                r.get("ticker"),
+                r.get("metric_value"),
+                r.get("metric_unit"),
+                json.dumps(r.get("raw_data", {}), default=str),
+            ),
+        )
+        inserted += 1
+    return inserted
 
 
 def _store_filings(rows: list[dict]) -> int:
@@ -50,20 +87,29 @@ def run(dry_run: bool = False) -> None:
         LOGGER.info("Perplexity: %d topics processed", len(results))
 
         ch_rows = companies_house.scrape()
+        bulletins: list[dict] = []
+        for name, fn in [("uk_authorities", uk_authorities.scrape), ("boe_news", boe_news.scrape)]:
+            try:
+                bulletins.extend(fn())
+            except Exception as exc:
+                LOGGER.exception("%s failed: %s", name, exc)
+
         if dry_run:
             print(f"Perplexity topics: {len(results)}")
             print(f"Companies House filings: {len(ch_rows)}")
-            db.finish_scraper_run(run_id, "dry_run", fetched=len(results) + len(ch_rows))
+            print(f"Finance bulletins: {len(bulletins)}")
+            db.finish_scraper_run(run_id, "dry_run", fetched=len(results) + len(ch_rows) + len(bulletins))
             return
 
         ch_inserted = _store_filings(ch_rows)
-        LOGGER.info("Companies House: %d filings stored", ch_inserted)
+        bull_inserted = _store_bulletins(bulletins)
+        LOGGER.info("Companies House: %d filings stored, bulletins: %d", ch_inserted, bull_inserted)
 
         db.finish_scraper_run(
             run_id,
             "ok",
-            fetched=len(results) + len(ch_rows),
-            inserted=len([r for r in results if not r.get("cached")]) + ch_inserted,
+            fetched=len(results) + len(ch_rows) + len(bulletins),
+            inserted=len([r for r in results if not r.get("cached")]) + ch_inserted + bull_inserted,
         )
     except Exception as exc:  # noqa: BLE001
         LOGGER.exception("Orchestrator failed: %s", exc)
