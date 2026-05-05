@@ -21,6 +21,18 @@ API_URL = "https://api.perplexity.ai/chat/completions"
 DEFAULT_MODEL = "sonar-pro"
 DEEP_MODEL = "sonar-reasoning-pro"
 
+COST_PER_MILLION = {
+    "sonar": {"input": 1.0, "output": 1.0},
+    "sonar-pro": {"input": 3.0, "output": 15.0},
+    "sonar-reasoning": {"input": 1.0, "output": 5.0},
+    "sonar-reasoning-pro": {"input": 2.0, "output": 8.0},
+}
+
+
+def _estimate_cost(model: str, tokens_in: int, tokens_out: int) -> float:
+    rates = COST_PER_MILLION.get(model, COST_PER_MILLION["sonar-pro"])
+    return (tokens_in * rates["input"] + tokens_out * rates["output"]) / 1_000_000
+
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=30), reraise=True)
 def ask(
@@ -58,6 +70,19 @@ def ask(
 
     answer = data["choices"][0]["message"]["content"]
     citations = data.get("citations", [])
+
+    usage = data.get("usage", {})
+    tokens_in = usage.get("prompt_tokens", 0)
+    tokens_out = usage.get("completion_tokens", 0)
+    cost = _estimate_cost(model, tokens_in, tokens_out)
+    db.execute(
+        """
+        INSERT INTO api_usage (service, model, endpoint, tokens_input, tokens_output, tokens_total, cost_usd, cached)
+        VALUES ('perplexity', %s, 'chat/completions', %s, %s, %s, %s, FALSE)
+        """,
+        (model, tokens_in, tokens_out, tokens_in + tokens_out, cost),
+    )
+
     return {"answer": answer, "citations": citations, "raw": data}
 
 
