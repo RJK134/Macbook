@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 
 from ..common import db
@@ -11,6 +12,29 @@ from ..common.logging_setup import get_logger
 from . import contracts_finder, find_a_tender, perplexity_procurement
 
 LOGGER = get_logger("procurement.orchestrator")
+
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _safe_date(val) -> str | None:
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    return s if _ISO_DATE_RE.match(s) else None
+
+
+def _safe_numeric(val) -> float | None:
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).replace(",", "").replace("£", "").replace("€", "").replace("$", "").strip()
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return None
 
 SCRAPERS = [
     ("contracts_finder", contracts_finder.scrape),
@@ -50,11 +74,11 @@ def _upsert(rows: list[dict]) -> tuple[int, int]:
                 r.get("description"),
                 r.get("category"),
                 r.get("cpv_codes"),
-                r.get("value_min"),
-                r.get("value_max"),
+                _safe_numeric(r.get("value_min")),
+                _safe_numeric(r.get("value_max")),
                 r.get("currency", "GBP"),
-                r.get("publication_date"),
-                r.get("deadline_date"),
+                _safe_date(r.get("publication_date")),
+                _safe_date(r.get("deadline_date")),
                 r.get("status", "open"),
                 r["source"],
                 url,
