@@ -39,8 +39,12 @@
 # Per-area HTML reports — every day at 05:30 (refreshes USB files for drill-down)
 30 5 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.reports.per_area >> /mnt/usb-archive/logs/reports/per_area.log 2>&1 #workhorse-v2
 
-# THE WEEKLY DIGEST EMAIL — Sunday 06:00 (the ONLY recurring email)
+# THE WEEKLY DIGEST EMAIL — Sunday 06:00 (full 7-day digest)
 0 6 * * 0 cd /srv/scrapers && .venv/bin/python -m scrapers.reports.master_digest >> /mnt/usb-archive/logs/reports/master.log 2>&1 #workhorse-v2
+
+# Mid-week summary emails — Monday 06:00 and Wednesday 06:00 (3-day lookback)
+0 6 * * 1 cd /srv/scrapers && .venv/bin/python -m scrapers.reports.master_digest --days 3 >> /mnt/usb-archive/logs/reports/master.log 2>&1 #workhorse-v2
+0 6 * * 3 cd /srv/scrapers && .venv/bin/python -m scrapers.reports.master_digest --days 3 >> /mnt/usb-archive/logs/reports/master.log 2>&1 #workhorse-v2
 
 # Weekly system report — Sunday 06:15 with API cost breakdown
 15 6 * * 0 cd /srv/scrapers && .venv/bin/python -m scrapers.reports.system_report >> /mnt/usb-archive/logs/reports/system.log 2>&1 #workhorse-v2

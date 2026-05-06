@@ -149,27 +149,32 @@ def _log(total: int) -> None:
     )
 
 
-def run(dry_run: bool = False) -> None:
-    LOGGER.info("Building master digest...")
+def run(dry_run: bool = False, days: int = 7) -> None:
+    sections.set_lookback_days(days)
+    label = "Weekly Digest" if days >= 7 else f"{days}-day Update"
+    LOGGER.info("Building master digest (lookback=%d days)...", days)
     html, total = build_digest_html()
     today = date.today().isoformat()
-    subject = f"Workhorse Weekly Digest — {today} ({total} items)"
+    subject = f"Workhorse {label} — {today} ({total} items)"
     if dry_run:
         print(subject)
         print(html[:2000])
         print("... (truncated)")
         return
     email_send.send_html(subject, html)
-    _log(total)
+    if days >= 7:
+        _log(total)
     LOGGER.info("Master digest sent: %s (%d items)", subject, total)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--days", type=int, default=7,
+                        help="Lookback window in days (7 for Sunday, 3 for Mon/Wed)")
     args = parser.parse_args()
     try:
-        run(dry_run=args.dry_run)
+        run(dry_run=args.dry_run, days=args.days)
     except Exception as exc:  # noqa: BLE001
         LOGGER.exception("Master digest failed: %s", exc)
         sys.exit(1)

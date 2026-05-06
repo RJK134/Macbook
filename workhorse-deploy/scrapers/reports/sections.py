@@ -20,9 +20,18 @@ def esc(val: object) -> str:
     return _esc(str(val)) if val else ""
 
 
+_LOOKBACK_DAYS = 7
+
+
+def set_lookback_days(days: int) -> None:
+    """Allow callers to set the lookback window (e.g. 3 for mid-week summaries)."""
+    global _LOOKBACK_DAYS
+    _LOOKBACK_DAYS = max(1, int(days))
+
+
 def _week_window() -> tuple[date, date]:
     today = date.today()
-    start = today - timedelta(days=7)
+    start = today - timedelta(days=_LOOKBACK_DAYS)
     return start, today
 
 
