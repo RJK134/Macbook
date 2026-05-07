@@ -40,11 +40,11 @@ def scrape() -> list[dict]:
                 "stages": "tender",
                 "limit": 50,
             }
-            url = f"{API_BASE}?publishedFrom={since}&stages=tender&limit=50"
             LOGGER.info("Contracts Finder: %s", kw)
-            r = http.get(url, timeout=30.0)
+            r = http.get(API_BASE, params=params, timeout=30.0)
             data = r.json()
             releases = data.get("releases", [])
+            matched = 0
             for release in releases:
                 tender = release.get("tender", {})
                 title = tender.get("title", "")
@@ -65,6 +65,7 @@ def scrape() -> list[dict]:
                         closing_date = datetime.fromisoformat(deadline.replace("Z", "+00:00")).date()
                     except ValueError:
                         pass
+                matched += 1
                 out.append({
                     "title": title[:300],
                     "employer": buyer.get("name", "UK Public Sector"),
@@ -80,7 +81,7 @@ def scrape() -> list[dict]:
                     "relevance_score": 1,
                     "raw_data": {"keyword": kw, "ocds_id": release.get("id")},
                 })
-            LOGGER.info("Contracts Finder '%s': %d matching", kw, len(releases))
+            LOGGER.info("Contracts Finder '%s': %d matching", kw, matched)
         except Exception as exc:
             LOGGER.warning("Contracts Finder '%s' failed: %s", kw, exc)
     write_raw_json("jobs", "contracts-finder", {"total": len(out)})

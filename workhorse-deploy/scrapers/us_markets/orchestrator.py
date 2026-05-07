@@ -26,7 +26,7 @@ def _upsert_signals(rows: list[dict]) -> tuple[int, int]:
         title = r.get("title", "")[:300]
         if not title:
             continue
-        # Dedupe by (source, title) within last 7 days
+        # Dedupe by (source_url, title) within last 7 days
         existing = db.fetch_one(
             "SELECT id FROM market_signals "
             "WHERE source_url = %s AND title = %s "

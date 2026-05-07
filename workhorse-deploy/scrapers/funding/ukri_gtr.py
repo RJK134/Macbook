@@ -8,9 +8,6 @@ API docs: https://gtr.ukri.org/resources/gtrapi.html
 
 from __future__ import annotations
 
-import json
-from urllib.parse import urlencode
-
 from ..common import http
 from ..common.logging_setup import get_logger
 from ..common.usb import write_raw_json
@@ -38,7 +35,6 @@ def _search_projects(term: str, page: int = 1, page_size: int = 100) -> list[dic
     }
     url = f"{API_BASE}/projects"
     LOGGER.info("GtR search: %s (page %d)", term, page)
-    headers = {"Accept": "application/json"}
     r = http.get(url, params=params, timeout=30.0)
     try:
         data = r.json()
@@ -66,13 +62,17 @@ def scrape() -> list[dict]:
                     continue
                 abstract = (p.get("abstractText") or "")[:2000]
                 fund = p.get("fund", {})
+                actual_funder = (
+                    fund.get("funder", {}).get("name")
+                    or search.get("funder", "UKRI")
+                )
                 amount = fund.get("valuePounds", {}).get("amount")
                 start = fund.get("start")
                 end = fund.get("end")
                 url = f"https://gtr.ukri.org/projects?ref={pid}" if pid else None
                 out.append({
                     "title": title[:300],
-                    "funder": search.get("funder", "UKRI"),
+                    "funder": actual_funder,
                     "country": "UK",
                     "region": "UK",
                     "currency": "GBP",

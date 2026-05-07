@@ -37,7 +37,6 @@ def scrape() -> list[dict]:
                 "app_key": ADZUNA_APP_KEY,
                 "what": search["what"],
                 "results_per_page": 50,
-                "content-type": "application/json",
             }
             if search.get("category"):
                 params["category"] = search["category"]

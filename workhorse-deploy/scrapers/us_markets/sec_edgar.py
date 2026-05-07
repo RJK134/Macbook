@@ -17,8 +17,7 @@ from ..common.usb import write_raw_json
 
 LOGGER = get_logger("us_markets.sec_edgar")
 
-EFTS_URL = "https://efts.sec.gov/LATEST/search-index"
-EDGAR_FULL_TEXT = "https://efts.sec.gov/LATEST/search-index"
+EFTS_SEARCH_URL = "https://efts.sec.gov/LATEST/search-index"
 
 # Watchlist: companies relevant to EdTech/wealth advisory
 SEARCHES = [
@@ -28,8 +27,6 @@ SEARCHES = [
     {"q": '"wealth management" AND technology', "forms": "10-K,10-Q"},
     {"q": '"financial advisory" AND "artificial intelligence"', "forms": "10-K,8-K"},
 ]
-
-SEC_SEARCH = "https://efts.sec.gov/LATEST/search-index"
 
 
 def scrape() -> list[dict]:
@@ -45,7 +42,7 @@ def scrape() -> list[dict]:
             }
             LOGGER.info("SEC EDGAR: %s", search["q"][:60])
             r = http.get(
-                "https://efts.sec.gov/LATEST/search-index",
+                EFTS_SEARCH_URL,
                 params=params,
                 timeout=30.0,
             )
@@ -57,7 +54,18 @@ def scrape() -> list[dict]:
                 form = source.get("form_type", "")
                 filed = source.get("file_date", "")
                 entity = source.get("entity_name", "")
-                url = f"https://www.sec.gov/Archives/edgar/data/{source.get('file_num', '')}"
+                cik = source.get("entity_id", "")
+                accession = hit.get("_id", "")
+                if cik and accession:
+                    accession_nodash = accession.replace("-", "")
+                    url = (
+                        f"https://www.sec.gov/Archives/edgar/data/"
+                        f"{cik}/{accession_nodash}/{accession}-index.htm"
+                    )
+                elif cik:
+                    url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}"
+                else:
+                    url = ""
                 out.append({
                     "signal_type": "sec-filing",
                     "title": f"{entity}: {form} - {title}"[:300],

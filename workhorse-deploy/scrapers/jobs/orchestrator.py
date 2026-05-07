@@ -25,11 +25,11 @@ SCRAPERS = [
 HIGH_RELEVANCE = re.compile(
     r"\b(edtech|education technology|higher education|academic management|"
     r"student management|learning technology|head of digital|director of digital|"
-    r"head of student|registrar|quality assurance|public tender)",
+    r"head of student|registrar|quality assurance|public tender)\b",
     re.I,
 )
 MEDIUM_RELEVANCE = re.compile(
-    r"\b(university|college|education|academic|student|registry|admissions)",
+    r"\b(university|college|education|academic|student|registry|admissions)\b",
     re.I,
 )
 
