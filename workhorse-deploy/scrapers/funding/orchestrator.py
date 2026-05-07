@@ -35,6 +35,18 @@ def _parse_date(s) -> datetime | None:
     return None
 
 
+def _safe_numeric(val) -> float | None:
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).replace(",", "").replace("£", "").replace("€", "").replace("$", "").strip()
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return None
+
+
 def _upsert(rows: list[dict]) -> tuple[int, int]:
     inserted = updated = 0
     for r in rows:
@@ -48,8 +60,8 @@ def _upsert(rows: list[dict]) -> tuple[int, int]:
             r.get("programme"),
             r.get("region"),
             r.get("country"),
-            r.get("amount_min"),
-            r.get("amount_max"),
+            _safe_numeric(r.get("amount_min")),
+            _safe_numeric(r.get("amount_max")),
             (r.get("currency") or "GBP")[:3],
             deadline.date() if deadline else None,
             r.get("eligibility"),

@@ -75,6 +75,13 @@ def build_digest_html() -> tuple[str, int]:
     s_funding = sections.funding_section(limit=15)
     s_jobs = sections.jobs_section(limit=15)
     s_film = sections.film_section(limit=15)
+    s_coursepulse = sections.coursepulse_section(limit=20)
+    s_research = sections.research_section(limit=15)
+    s_procurement = sections.procurement_section(limit=15)
+    s_education = sections.education_resources_section(limit=15)
+    s_sen = sections.sen_section(limit=12)
+    s_shakespeare = sections.shakespeare_section(limit=12)
+    s_finance = sections.finance_bulletins_section(limit=12)
     s_gmail = sections.gmail_section(limit=15)
 
     # Write per-area HTML files to USB (reuses already-fetched sections)
@@ -83,26 +90,44 @@ def build_digest_html() -> tuple[str, int]:
     summary = SUMMARY_TEMPLATE.format(
         rows="".join([
             _summary_row("Courses (MyCourseMatchmaker)", s_courses["count"], "indexed this week"),
+            _summary_row("CoursePulse (Curriculum Intel)", s_coursepulse["count"], "pathways + insights"),
+            _summary_row("Procurement (FHE + builds)", s_procurement["count"], "tenders + frameworks"),
+            _summary_row("Education Resources (Maieus)", s_education["count"], "exam-board + platforms"),
+            _summary_row("SEN & Excluded Learners", s_sen["count"], "policy + inclusion tools"),
+            _summary_row("Shakespeare Engagement", s_shakespeare["count"], "modern media + practical"),
+            _summary_row("Finance Bulletins", s_finance["count"], "HMRC/FCA/BoE/DfE/ONS"),
             _summary_row("Job trends", s_trends["count"], "skill / occupation signals"),
             _summary_row("Financial research", s_financial["count"], "Perplexity topics refreshed"),
             _summary_row("Funding & grants", s_funding["count"], "open opportunities"),
             _summary_row("Jobs (EdTech / HE)", s_jobs["count"], "live listings"),
             _summary_row("Film & script", s_film["count"], "open opportunities"),
+            _summary_row("AI Research (Perplexity + Gemini)", s_research["count"], "dual-engine queries"),
             _summary_row("Inbox (Gmail)", s_gmail["count"], "relevant emails"),
         ])
     )
 
     body = HEADER.format(today=today) + summary
+    body += s_procurement["html"]
+    body += s_coursepulse["html"]
+    body += s_education["html"]
+    body += s_sen["html"]
+    body += s_shakespeare["html"]
     body += s_funding["html"]
     body += s_jobs["html"]
     body += s_film["html"]
     body += s_courses["html"]
+    body += s_finance["html"]
     body += s_trends["html"]
     body += s_financial["html"]
+    body += s_research["html"]
     body += s_gmail["html"]
     body += FOOTER.format(week=week)
 
-    total = sum(s["count"] for s in [s_courses, s_trends, s_financial, s_funding, s_jobs, s_film, s_gmail])
+    total = sum(s["count"] for s in [
+        s_courses, s_coursepulse, s_procurement, s_education, s_sen,
+        s_shakespeare, s_finance, s_trends, s_financial, s_funding,
+        s_jobs, s_film, s_research, s_gmail
+    ])
     return body, total
 
 
@@ -124,27 +149,32 @@ def _log(total: int) -> None:
     )
 
 
-def run(dry_run: bool = False) -> None:
-    LOGGER.info("Building master digest...")
+def run(dry_run: bool = False, days: int = 7) -> None:
+    sections.set_lookback_days(days)
+    label = "Weekly Digest" if days >= 7 else f"{days}-day Update"
+    LOGGER.info("Building master digest (lookback=%d days)...", days)
     html, total = build_digest_html()
     today = date.today().isoformat()
-    subject = f"Workhorse Weekly Digest — {today} ({total} items)"
+    subject = f"Workhorse {label} — {today} ({total} items)"
     if dry_run:
         print(subject)
         print(html[:2000])
         print("... (truncated)")
         return
     email_send.send_html(subject, html)
-    _log(total)
+    if days >= 7:
+        _log(total)
     LOGGER.info("Master digest sent: %s (%d items)", subject, total)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--days", type=int, default=7,
+                        help="Lookback window in days (7 for weekly digest, 3 for Mon/Wed)")
     args = parser.parse_args()
     try:
-        run(dry_run=args.dry_run)
+        run(dry_run=args.dry_run, days=args.days)
     except Exception as exc:  # noqa: BLE001
         LOGGER.exception("Master digest failed: %s", exc)
         sys.exit(1)

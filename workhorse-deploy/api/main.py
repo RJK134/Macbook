@@ -126,3 +126,109 @@ def list_providers(limit: int = Query(200, ge=1, le=2000)) -> dict[str, Any]:
         )
         rows = cur.fetchall()
     return {"items": rows}
+
+
+@app.get("/courses/{course_id}/careers")
+def course_careers(course_id: str) -> dict[str, Any]:
+    """Career pathways for a specific course, based on its subject area."""
+    with _conn() as c, c.cursor() as cur:
+        cur.execute("SELECT subject_area FROM courses WHERE id = %s", (course_id,))
+        course = cur.fetchone()
+    if not course or not course.get("subject_area"):
+        raise HTTPException(status_code=404, detail="course not found or no subject area")
+    return _careers_for_subject(course["subject_area"])
+
+
+@app.get("/subjects")
+def list_subjects() -> dict[str, Any]:
+    """All subject areas with course counts and career pathway counts."""
+    with _conn() as c, c.cursor() as cur:
+        cur.execute(
+            """
+            SELECT c.subject_area, COUNT(DISTINCT c.id) AS course_count,
+                   COUNT(DISTINCT cp.id) AS career_count
+            FROM courses c
+            LEFT JOIN course_career_pathways cp ON cp.subject_area = c.subject_area
+            WHERE c.active AND c.subject_area IS NOT NULL
+            GROUP BY c.subject_area
+            ORDER BY course_count DESC
+            """
+        )
+        rows = cur.fetchall()
+    return {"items": rows}
+
+
+@app.get("/subjects/{subject_area}/pathways")
+def subject_pathways(subject_area: str) -> dict[str, Any]:
+    """Full career pathways for a subject area — salary, demand, ROI, skills."""
+    return _careers_for_subject(subject_area)
+
+
+def _careers_for_subject(subject_area: str) -> dict[str, Any]:
+    with _conn() as c, c.cursor() as cur:
+        cur.execute(
+            """
+            SELECT career_title, career_sector, demand_trend, growth_pct,
+                   median_salary_gbp, salary_5yr_gbp, roi_score,
+                   skills_overlap, confidence, source, updated_at
+            FROM course_career_pathways
+            WHERE subject_area ILIKE %s
+            ORDER BY median_salary_gbp DESC NULLS LAST
+            """,
+            (subject_area,),
+        )
+        pathways = cur.fetchall()
+        cur.execute(
+            "SELECT AVG(fees_uk_gbp) AS avg_fee, COUNT(*) AS course_count "
+            "FROM courses WHERE subject_area ILIKE %s AND active AND fees_uk_gbp > 0",
+            (subject_area,),
+        )
+        stats = cur.fetchone()
+    return {
+        "subject_area": subject_area,
+        "course_count": stats["course_count"] if stats else 0,
+        "avg_fee_gbp": float(stats["avg_fee"]) if stats and stats["avg_fee"] else None,
+        "pathways": pathways,
+    }
+
+
+@app.get("/insights")
+def list_insights(
+    insight_type: str | None = Query(None, description="Filter by type: curriculum-gap, curriculum-risk, etc."),
+    limit: int = Query(20, ge=1, le=100),
+) -> dict[str, Any]:
+    """CoursePulse curriculum insights."""
+    where = ["1=1"]
+    params: list[Any] = []
+    if insight_type:
+        where.append("insight_type = %s")
+        params.append(insight_type)
+    with _conn() as c, c.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT insight_type, subject_area, title, summary, source, region, created_at
+            FROM coursepulse_insights
+            WHERE {' AND '.join(where)}
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            tuple(params + [limit]),
+        )
+        rows = cur.fetchall()
+    return {"items": rows}
+
+
+@app.get("/fx")
+def exchange_rates() -> dict[str, Any]:
+    """Latest exchange rates and interest rates."""
+    with _conn() as c, c.cursor() as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT ON (base_currency, quote_currency)
+                base_currency, quote_currency, rate, rate_date, source
+            FROM exchange_rates
+            ORDER BY base_currency, quote_currency, rate_date DESC
+            """
+        )
+        rows = cur.fetchall()
+    return {"items": rows}

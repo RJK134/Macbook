@@ -2,6 +2,12 @@
 # Times in MacBook local timezone (Europe/Zurich).
 # All scrapers run silently overnight; only the master digest emails.
 
+# Dual-engine research module — runs first to populate financial_research cache
+0 1 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.research.orchestrator >> /mnt/usb-archive/logs/scrapers/research.log 2>&1 #workhorse-v2
+
+# CoursePulse: career mapping + curriculum insights — runs after research cache warms
+30 1 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.coursepulse.orchestrator >> /mnt/usb-archive/logs/scrapers/coursepulse.log 2>&1 #workhorse-v2
+
 # Daily scrapers — staggered overnight
 0 2 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.courses.orchestrator >> /mnt/usb-archive/logs/scrapers/courses.log 2>&1 #workhorse-v2
 0 3 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.jobs.orchestrator >> /mnt/usb-archive/logs/scrapers/jobs.log 2>&1 #workhorse-v2
@@ -15,11 +21,35 @@
 # Gmail IMAP — every 4 hours
 0 */4 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.gmail.imap_monitor >> /mnt/usb-archive/logs/scrapers/gmail.log 2>&1 #workhorse-v2
 
+# Procurement (Future Horizons + builds) — daily at 02:30 (cheap APIs + Perplexity)
+30 2 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.procurement.orchestrator >> /mnt/usb-archive/logs/scrapers/procurement.log 2>&1 #workhorse-v2
+
+# Education resources for Maieus / Maieus2 — twice a week (Mon + Thu 04:45, offset from job_trends)
+45 4 * * 1,4 cd /srv/scrapers && .venv/bin/python -m scrapers.education_resources.orchestrator >> /mnt/usb-archive/logs/scrapers/edu.log 2>&1 #workhorse-v2
+
+# SEN / excluded learners — twice a week (Tue + Fri 04:45)
+45 4 * * 2,5 cd /srv/scrapers && .venv/bin/python -m scrapers.sen.orchestrator >> /mnt/usb-archive/logs/scrapers/sen.log 2>&1 #workhorse-v2
+
+# Shakespeare engagement — weekly (Wed 05:00) for Shakespeare is Boring app
+0 5 * * 3 cd /srv/scrapers && .venv/bin/python -m scrapers.shakespeare.orchestrator >> /mnt/usb-archive/logs/scrapers/shakespeare.log 2>&1 #workhorse-v2
+
+# FX / interest rates — daily at 05:15 with dramatic-change alerts
+15 5 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.fx.orchestrator >> /mnt/usb-archive/logs/scrapers/fx.log 2>&1 #workhorse-v2
+
 # Per-area HTML reports — every day at 05:30 (refreshes USB files for drill-down)
 30 5 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.reports.per_area >> /mnt/usb-archive/logs/reports/per_area.log 2>&1 #workhorse-v2
 
-# THE WEEKLY DIGEST EMAIL — Sunday 06:00 (the ONLY recurring email)
-0 6 * * 0 cd /srv/scrapers && .venv/bin/python -m scrapers.reports.master_digest >> /mnt/usb-archive/logs/reports/master.log 2>&1 #workhorse-v2
+# Full Weekly Digest — Monday 08:00 (7-day lookback)
+0 8 * * 1 cd /srv/scrapers && .venv/bin/python -m scrapers.reports.master_digest >> /mnt/usb-archive/logs/reports/master.log 2>&1 #workhorse-v2
+
+# Mid-week 3-day Update — Wednesday 08:00 (3-day lookback)
+0 8 * * 3 cd /srv/scrapers && .venv/bin/python -m scrapers.reports.master_digest --days 3 >> /mnt/usb-archive/logs/reports/master.log 2>&1 #workhorse-v2
+
+# Weekly system report — Sunday 06:15 with API cost breakdown
+15 6 * * 0 cd /srv/scrapers && .venv/bin/python -m scrapers.reports.system_report >> /mnt/usb-archive/logs/reports/system.log 2>&1 #workhorse-v2
+
+# Weekly data lake export — Sunday 06:45 (denormalised CSVs to gdrive5tb)
+45 6 * * 0 cd /srv/scrapers && .venv/bin/python -m scrapers.reports.datalake_export >> /mnt/usb-archive/logs/reports/datalake.log 2>&1 #workhorse-v2
 
 # Existing DB backup to USB
 30 6 * * * /srv/core/backup.sh #workhorse-v2

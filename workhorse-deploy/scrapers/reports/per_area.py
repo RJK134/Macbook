@@ -23,6 +23,13 @@ AREA_FUNCS = {
     "funding": sections.funding_section,
     "jobs": sections.jobs_section,
     "film": sections.film_section,
+    "coursepulse": sections.coursepulse_section,
+    "research": sections.research_section,
+    "procurement": sections.procurement_section,
+    "education_resources": sections.education_resources_section,
+    "sen": sections.sen_section,
+    "shakespeare": sections.shakespeare_section,
+    "finance_bulletins": sections.finance_bulletins_section,
     "gmail": sections.gmail_section,
 }
 
