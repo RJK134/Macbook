@@ -13,15 +13,12 @@ Alerts when:
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from datetime import date, timedelta
-from decimal import Decimal
 
 import httpx
 
 from ..common import db
-from ..common.config import SMTP_FROM
 from ..common.email_send import send_html
 from ..common.logging_setup import get_logger
 
