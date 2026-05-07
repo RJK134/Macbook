@@ -171,7 +171,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--days", type=int, default=7,
-                        help="Lookback window in days (7 for Sunday, 3 for Mon/Wed)")
+                        help="Lookback window in days (7 for weekly digest, 3 for Mon/Wed)")
     args = parser.parse_args()
     try:
         run(dry_run=args.dry_run, days=args.days)
