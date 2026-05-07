@@ -133,16 +133,17 @@ def map_subject(subject_area: str, course_count: int) -> list[dict]:
     except Exception as exc:
         LOGGER.warning("Gemini career map for %s failed: %s", subject_area, exc)
 
+    fees = db.fetch_one(
+        "SELECT AVG(fees_uk_gbp) AS avg_fee FROM courses WHERE subject_area = %s AND active AND fees_uk_gbp > 0",
+        (subject_area,),
+    )
+    avg_fee = float(fees["avg_fee"]) if fees and fees["avg_fee"] else None
+
     rows = []
     for career in all_careers.values():
         career["subject_area"] = subject_area
         career["course_count"] = course_count
 
-        fees = db.fetch_one(
-            "SELECT AVG(fees_uk_gbp) AS avg_fee FROM courses WHERE subject_area = %s AND active AND fees_uk_gbp > 0",
-            (subject_area,),
-        )
-        avg_fee = float(fees["avg_fee"]) if fees and fees["avg_fee"] else None
         salary = career.get("median_salary_gbp")
         if avg_fee and salary and salary > 0:
             duration_years = 3

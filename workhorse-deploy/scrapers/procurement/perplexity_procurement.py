@@ -7,11 +7,10 @@ nation portals, and supplier-side opportunities.
 
 from __future__ import annotations
 
-import json
 import re
 from datetime import date
 
-from ..common import perplexity
+from ..common import llm_json, perplexity
 from ..common.logging_setup import get_logger
 
 LOGGER = get_logger("procurement.perplexity")
@@ -53,19 +52,6 @@ QUERIES = [
 ]
 
 
-def _parse_json(answer: str) -> list[dict]:
-    answer = answer.strip()
-    answer = re.sub(r"^```(?:json)?\s*", "", answer)
-    answer = re.sub(r"\s*```$", "", answer)
-    m = re.search(r"\[.*\]", answer, re.DOTALL)
-    if m:
-        try:
-            return json.loads(m.group(0))
-        except json.JSONDecodeError:
-            return []
-    return []
-
-
 def scrape() -> list[dict]:
     out: list[dict] = []
     today_iso = date.today().isoformat()
@@ -77,7 +63,7 @@ def scrape() -> list[dict]:
         except Exception as exc:
             LOGGER.warning("Perplexity %s failed: %s", q["category"], exc)
             continue
-        for item in _parse_json(answer):
+        for item in llm_json.parse_json_array(answer):
             url = item.get("url") or (citations[0] if citations else None)
             if not url:
                 continue

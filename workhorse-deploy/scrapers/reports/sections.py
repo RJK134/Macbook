@@ -342,9 +342,12 @@ def research_section(limit: int = 15) -> dict:
                 f'<h3 style="margin-bottom:4px;">{source_badge} {esc(r["topic"])} '
                 f'<span style="color:#7f8c8d;font-weight:normal;">({esc(r.get("region") or "")})</span></h3>'
             )
-            answer = (r["answer"] or "")[:800]
-            answer = answer.replace("\n", "<br>")
-            html.append(f'<div style="margin-bottom:8px;">{answer}{"&hellip;" if len(r["answer"] or "") > 800 else ""}</div>')
+            raw_answer = r["answer"] or ""
+            answer_html = esc(raw_answer[:800]).replace("\n", "<br>")
+            html.append(
+                f'<div style="margin-bottom:8px;">{answer_html}'
+                f'{"&hellip;" if len(raw_answer) > 800 else ""}</div>'
+            )
             cits = r.get("citations") or []
             if cits:
                 links = " &middot; ".join(

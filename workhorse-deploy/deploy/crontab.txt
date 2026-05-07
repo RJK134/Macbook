@@ -24,8 +24,8 @@
 # Procurement (Future Horizons + builds) — daily at 02:30 (cheap APIs + Perplexity)
 30 2 * * * cd /srv/scrapers && .venv/bin/python -m scrapers.procurement.orchestrator >> /mnt/usb-archive/logs/scrapers/procurement.log 2>&1 #workhorse-v2
 
-# Education resources for Maieus / Maieus2 — twice a week (Mon + Thu 04:30)
-30 4 * * 1,4 cd /srv/scrapers && .venv/bin/python -m scrapers.education_resources.orchestrator >> /mnt/usb-archive/logs/scrapers/edu.log 2>&1 #workhorse-v2
+# Education resources for Maieus / Maieus2 — twice a week (Mon + Thu 04:45, offset from job_trends)
+45 4 * * 1,4 cd /srv/scrapers && .venv/bin/python -m scrapers.education_resources.orchestrator >> /mnt/usb-archive/logs/scrapers/edu.log 2>&1 #workhorse-v2
 
 # SEN / excluded learners — twice a week (Tue + Fri 04:45)
 45 4 * * 2,5 cd /srv/scrapers && .venv/bin/python -m scrapers.sen.orchestrator >> /mnt/usb-archive/logs/scrapers/sen.log 2>&1 #workhorse-v2

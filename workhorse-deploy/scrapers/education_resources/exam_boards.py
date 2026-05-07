@@ -5,10 +5,7 @@ and A-Level core subjects relevant to Maieus / Maieus2.
 
 from __future__ import annotations
 
-import json
-import re
-
-from ..common import perplexity
+from ..common import llm_json, perplexity
 from ..common.logging_setup import get_logger
 
 LOGGER = get_logger("edu.exam_boards")
@@ -34,19 +31,6 @@ SUBJECT_PLAN = [
 ]
 
 
-def _parse_json(answer: str) -> list[dict]:
-    answer = answer.strip()
-    answer = re.sub(r"^```(?:json)?\s*", "", answer)
-    answer = re.sub(r"\s*```$", "", answer)
-    m = re.search(r"\[.*\]", answer, re.DOTALL)
-    if m:
-        try:
-            return json.loads(m.group(0))
-        except json.JSONDecodeError:
-            return []
-    return []
-
-
 def _query_subject(subject: str, level: str) -> list[dict]:
     prompt = (
         f"List the most useful currently-available {level} {subject} resources "
@@ -61,7 +45,7 @@ def _query_subject(subject: str, level: str) -> list[dict]:
     except Exception as exc:
         LOGGER.warning("Perplexity %s/%s failed: %s", level, subject, exc)
         return []
-    items = _parse_json(res.get("answer", ""))
+    items = llm_json.parse_json_array(res.get("answer", ""))
     rows: list[dict] = []
     for item in items:
         url = item.get("direct_url") or item.get("url")
