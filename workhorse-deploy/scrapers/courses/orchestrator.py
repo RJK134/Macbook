@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
 from typing import Iterable
@@ -10,15 +11,18 @@ from typing import Iterable
 from ..common import db
 from ..common.logging_setup import get_logger
 from ..common.usb import databases_dir
-from . import complete_uni_guide, cost_of_living, discoveruni, ucas, whatuni
+from . import complete_uni_guide, cost_of_living, discoveruni_api, hesa, ofqual, whatuni
 
 LOGGER = get_logger("courses.orchestrator")
 
+# NOTE: UCAS scraper removed — UCAS ToS explicitly prohibit commercial use.
+# Discover Uni API replaces it with richer, licensed data (21,500 programmes).
 SCRAPERS = [
-    ("discoveruni", discoveruni.scrape),
+    ("discoveruni-api", discoveruni_api.scrape),
     ("whatuni", whatuni.scrape),
-    ("ucas", ucas.scrape),
     ("cug", complete_uni_guide.scrape),
+    ("hesa", hesa.scrape),
+    ("ofqual", ofqual.scrape),
 ]
 
 
@@ -41,10 +45,8 @@ def _dedupe(courses: Iterable[dict]) -> list[dict]:
 
 
 def _upsert_courses(courses: list[dict]) -> tuple[int, int]:
-    """UPSERT into courses. Returns (inserted, updated)."""
     if not courses:
         return 0, 0
-
     inserted = 0
     updated = 0
     for c in courses:
@@ -79,6 +81,11 @@ def _upsert_courses(courses: list[dict]) -> tuple[int, int]:
             ON CONFLICT (provider, title, qualification) DO UPDATE
               SET last_seen_at = NOW(),
                   url = COALESCE(EXCLUDED.url, courses.url),
+                  fees_uk_gbp = COALESCE(EXCLUDED.fees_uk_gbp, courses.fees_uk_gbp),
+                  fees_intl_gbp = COALESCE(EXCLUDED.fees_intl_gbp, courses.fees_intl_gbp),
+                  entry_requirements = COALESCE(EXCLUDED.entry_requirements, courses.entry_requirements),
+                  duration_months = COALESCE(EXCLUDED.duration_months, courses.duration_months),
+                  study_mode = COALESCE(EXCLUDED.study_mode, courses.study_mode),
                   description = COALESCE(EXCLUDED.description, courses.description),
                   raw_data = courses.raw_data || EXCLUDED.raw_data
             RETURNING (xmax = 0) AS inserted
@@ -139,9 +146,6 @@ def _upsert_cost_of_living(rows: list[dict]) -> tuple[int, int]:
 
 
 def _export_csv() -> None:
-    """Dump current courses table to /mnt/usb-archive/databases/courses_export.csv."""
-    import csv
-
     rows = db.fetch_all(
         "SELECT provider, title, qualification, subject_area, "
         "location_city, fees_uk_gbp, url, source, last_seen_at "
@@ -167,7 +171,7 @@ def run(dry_run: bool = False) -> None:
             LOGGER.info("Running scraper: %s", name)
             try:
                 all_courses.extend(fn())
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 LOGGER.exception("Scraper %s failed: %s", name, exc)
 
         deduped = _dedupe(all_courses)
@@ -196,7 +200,7 @@ def run(dry_run: bool = False) -> None:
             inserted=c_inserted + col_inserted,
             updated=c_updated + col_updated,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         LOGGER.exception("Orchestrator failed: %s", exc)
         db.finish_scraper_run(run_id, "error", error=str(exc))
         sys.exit(1)

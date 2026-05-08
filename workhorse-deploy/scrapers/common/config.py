@@ -34,6 +34,11 @@ USB_ROOT = Path(os.environ.get("USB_ROOT", "/mnt/usb-archive"))
 COMPANIES_HOUSE_API_KEY = os.environ.get("COMPANIES_HOUSE_API_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
+# New API keys for upgraded scrapers
+ADZUNA_APP_ID = os.environ.get("ADZUNA_APP_ID", "")
+ADZUNA_APP_KEY = os.environ.get("ADZUNA_APP_KEY", "")
+REED_API_KEY = os.environ.get("REED_API_KEY", "")
+
 
 def database_url() -> str:
     from urllib.parse import quote_plus
