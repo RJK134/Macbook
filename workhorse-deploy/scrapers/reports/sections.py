@@ -13,6 +13,7 @@ from datetime import date, timedelta
 from html import escape as _esc
 
 from ..common import db
+from ._renderer import render_research_answer
 
 
 def esc(val: object) -> str:
@@ -120,17 +121,20 @@ def financial_section(limit: int = 6) -> dict:
         html.append('<p><em>No fresh research yet — run the financial orchestrator.</em></p>')
     else:
         for r in rows:
+            tldr, body_html = render_research_answer(r["answer"])
             html.append(
-                f'<h3 style="color:#34495e;margin-bottom:4px;">{r["topic"]} '
-                f'<span style="color:#7f8c8d;font-weight:normal;">({r.get("region") or ""})</span></h3>'
+                f'<h3 style="color:#34495e;margin-bottom:4px;">{esc(r["topic"])} '
+                f'<span style="color:#7f8c8d;font-weight:normal;">({esc(r.get("region") or "")})</span></h3>'
             )
-            answer = (r["answer"] or "")[:1200]
-            answer = answer.replace("\n", "<br>")
-            html.append(f'<div style="margin-bottom:12px;">{answer}{"&hellip;" if len(r["answer"] or "") > 1200 else ""}</div>')
+            if tldr:
+                html.append(
+                    f'<p style="margin:4px 0 8px 0;font-style:italic;color:#34495e;">{esc(tldr)}</p>'
+                )
+            html.append(f'<div style="margin-bottom:12px;">{body_html}</div>')
             cits = r.get("citations") or []
             if cits:
                 links = " &middot; ".join(
-                    f'<a href="{c}">[{i + 1}]</a>' for i, c in enumerate(cits[:8])
+                    f'<a href="{esc(c)}">[{i + 1}]</a>' for i, c in enumerate(cits[:8])
                 )
                 html.append(f'<p style="color:#7f8c8d;font-size:0.9em;">Sources: {links}</p>')
     return {"title": "Financial", "html": "\n".join(html), "count": len(rows), "items": rows}
@@ -338,20 +342,20 @@ def research_section(limit: int = 15) -> dict:
                 f'color:#fff;padding:2px 8px;border-radius:3px;font-size:0.75em;">'
                 f'{esc(r["source"])}</span>'
             )
+            tldr, body_html = render_research_answer(r["answer"])
             html.append(
                 f'<h3 style="margin-bottom:4px;">{source_badge} {esc(r["topic"])} '
                 f'<span style="color:#7f8c8d;font-weight:normal;">({esc(r.get("region") or "")})</span></h3>'
             )
-            raw_answer = r["answer"] or ""
-            answer_html = esc(raw_answer[:800]).replace("\n", "<br>")
-            html.append(
-                f'<div style="margin-bottom:8px;">{answer_html}'
-                f'{"&hellip;" if len(raw_answer) > 800 else ""}</div>'
-            )
+            if tldr:
+                html.append(
+                    f'<p style="margin:4px 0 8px 0;font-style:italic;color:#34495e;">{esc(tldr)}</p>'
+                )
+            html.append(f'<div style="margin-bottom:8px;">{body_html}</div>')
             cits = r.get("citations") or []
             if cits:
                 links = " &middot; ".join(
-                    f'<a href="{c}">[{i + 1}]</a>' for i, c in enumerate(cits[:6])
+                    f'<a href="{esc(c)}">[{i + 1}]</a>' for i, c in enumerate(cits[:6])
                 )
                 html.append(f'<p style="color:#7f8c8d;font-size:0.85em;">Sources: {links}</p>')
     return {"title": "AI Research", "html": "\n".join(html), "count": len(rows), "items": rows}
