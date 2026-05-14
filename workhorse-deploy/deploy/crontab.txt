@@ -45,11 +45,11 @@
 # Mid-week 3-day Update — Wednesday 08:00 (3-day lookback)
 0 8 * * 3 cd /srv/scrapers && .venv/bin/python -m scrapers.reports.master_digest --days 3 >> /mnt/usb-archive/logs/reports/master.log 2>&1 #workhorse-v2
 
-# Weekly system report — Sunday 06:15 with API cost breakdown
-15 6 * * 0 cd /srv/scrapers && .venv/bin/python -m scrapers.reports.system_report >> /mnt/usb-archive/logs/reports/system.log 2>&1 #workhorse-v2
+# Weekly system report — Monday 08:00 (was Sun 06:15; laptop asleep then)
+0 8 * * 1 cd /srv/scrapers && .venv/bin/python -m scrapers.reports.system_report >> /mnt/usb-archive/logs/reports/system.log 2>&1 #workhorse-v2
 
-# Weekly data lake export — Sunday 06:45 (denormalised CSVs to gdrive5tb)
-45 6 * * 0 cd /srv/scrapers && .venv/bin/python -m scrapers.reports.datalake_export >> /mnt/usb-archive/logs/reports/datalake.log 2>&1 #workhorse-v2
+# Weekly data lake export — Monday 08:00 (was Sun 06:45; laptop asleep then)
+0 8 * * 1 cd /srv/scrapers && .venv/bin/python -m scrapers.reports.datalake_export >> /mnt/usb-archive/logs/reports/datalake.log 2>&1 #workhorse-v2
 
 # Existing DB backup to USB
 30 6 * * * /srv/core/backup.sh #workhorse-v2
