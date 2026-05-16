@@ -36,8 +36,13 @@ def _upsert(rows: list[dict]) -> tuple[int, int]:
             """
             INSERT INTO education_resources (
               exam_board, level, subject, topic, resource_type,
-              title, source, url, description, year, difficulty, raw_data
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+              title, source, url, description, year, difficulty, raw_data,
+              paper_code, paper_name, duration_minutes, total_marks,
+              licence, official_pdf_url, aggregator_urls
+            ) VALUES (
+              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
+              %s, %s, %s, %s, %s, %s, %s
+            )
             ON CONFLICT (url) DO NOTHING
             """,
             (
@@ -53,6 +58,13 @@ def _upsert(rows: list[dict]) -> tuple[int, int]:
                 r.get("year"),
                 r.get("difficulty"),
                 json.dumps(r.get("raw_data", {}), default=str),
+                r.get("paper_code"),
+                r.get("paper_name"),
+                r.get("duration_minutes"),
+                r.get("total_marks"),
+                r.get("licence"),
+                r.get("official_pdf_url"),
+                r.get("aggregator_urls") or [],
             ),
         )
         inserted += 1

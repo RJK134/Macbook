@@ -74,18 +74,20 @@ mkdir -p "$USB_ROOT"/backups/{daily,weekly,monthly}
 mkdir -p "$USB_ROOT"/logs/{scrapers,reports}
 green "USB layout ready"
 
-# 6. Apply schema-v2 and schema-v3 to Postgres
-blue "[6/8] Applying schema-v2.sql and schema-v3.sql to Postgres"
+# 6. Apply schema-v2 through schema-v5 to Postgres (all idempotent — safe to replay)
+blue "[6/8] Applying schema-v2.sql .. schema-v5.sql to Postgres"
 DB_PASS=$(grep '^DB_PASSWORD=' "$ENV_FILE" | cut -d'=' -f2- | tr -d '"')
-sudo -A docker cp "$REPO_ROOT/workhorse-deploy/schema-v2.sql" workhorse-postgres:/tmp/schema-v2.sql
-sudo -A docker exec -e PGPASSWORD="$DB_PASS" workhorse-postgres \
-    psql -U workhorse_user -d workhorse -f /tmp/schema-v2.sql \
-    || fail "schema-v2 apply failed"
-sudo -A docker cp "$REPO_ROOT/workhorse-deploy/schema-v3.sql" workhorse-postgres:/tmp/schema-v3.sql
-sudo -A docker exec -e PGPASSWORD="$DB_PASS" workhorse-postgres \
-    psql -U workhorse_user -d workhorse -f /tmp/schema-v3.sql \
-    || fail "schema-v3 apply failed"
-green "Schema v2 + v3 applied"
+for VER in v2 v3 v4 v5; do
+    SCHEMA_FILE="$REPO_ROOT/workhorse-deploy/schema-$VER.sql"
+    if [ ! -f "$SCHEMA_FILE" ]; then
+        continue
+    fi
+    sudo -A docker cp "$SCHEMA_FILE" workhorse-postgres:/tmp/schema-$VER.sql
+    sudo -A docker exec -e PGPASSWORD="$DB_PASS" workhorse-postgres \
+        psql -U workhorse_user -d workhorse -f /tmp/schema-$VER.sql \
+        || fail "schema-$VER apply failed"
+done
+green "Schema v2 .. v5 applied"
 
 # 7. Install cron
 blue "[7/8] Installing cron schedule"
