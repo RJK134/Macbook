@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
 from typing import Iterable
 
@@ -14,6 +15,47 @@ from ..common.usb import databases_dir
 from . import complete_uni_guide, cost_of_living, discoveruni_api, hesa, ofqual, whatuni
 
 LOGGER = get_logger("courses.orchestrator")
+
+# Title-based qualification inference. Discover Uni / WhatUni / CUG often
+# emit the qualification embedded in the title ("BA (Hons) Drama",
+# "Drama - MA", "PhD in Sociology") but don't populate the `qualification`
+# column itself. Patterns are checked in order; first match wins. Order
+# matters: doctoral before masters, integrated-masters before plain
+# bachelors, otherwise an MEng matches "BEng" first.
+_QUAL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\b(PhD|DPhil|EdD|DBA|MD\b|MPhil)\b", re.I), "Doctorate"),
+    (re.compile(r"\bMA(?:\s|\(|$)", re.I), "MA"),
+    (re.compile(r"\bMSc(?:\s|\(|$)", re.I), "MSc"),
+    (re.compile(r"\bMBA(?:\s|\(|$)", re.I), "MBA"),
+    (re.compile(r"\bLLM(?:\s|\(|$)", re.I), "LLM"),
+    (re.compile(r"\bMRes(?:\s|\(|$)", re.I), "MRes"),
+    (re.compile(r"\bMEng(?:\s|\(|$)", re.I), "MEng (Integrated Masters)"),
+    (re.compile(r"\bMSci(?:\s|\(|$)", re.I), "MSci (Integrated Masters)"),
+    (re.compile(r"\bMPharm(?:\s|\(|$)", re.I), "MPharm"),
+    (re.compile(r"\bMArch(?:\s|\(|$)", re.I), "MArch"),
+    (re.compile(r"\bBA(?:\s|\(|$)", re.I), "BA (Hons)"),
+    (re.compile(r"\bBSc(?:\s|\(|$)", re.I), "BSc (Hons)"),
+    (re.compile(r"\bBEng(?:\s|\(|$)", re.I), "BEng (Hons)"),
+    (re.compile(r"\bLLB(?:\s|\(|$)", re.I), "LLB (Hons)"),
+    (re.compile(r"\bMB\s*ChB|\bMBBS\b", re.I), "MB ChB"),
+    (re.compile(r"\b(Foundation Degree|FdA|FdSc)\b", re.I), "Foundation Degree"),
+    (re.compile(r"\b(HND|Higher National Diploma)\b", re.I), "HND"),
+    (re.compile(r"\b(HNC|Higher National Certificate)\b", re.I), "HNC"),
+    (re.compile(r"\bDiploma\b", re.I), "Diploma"),
+    (re.compile(r"\bCertificate\b", re.I), "Certificate"),
+    (re.compile(r"\bA[- ]?Level\b", re.I), "GCE A Level"),
+    (re.compile(r"\bGCSE\b", re.I), "GCSE"),
+]
+
+
+def _infer_qualification(title: str) -> str:
+    """Best-effort qualification extraction from a course title."""
+    if not title:
+        return ""
+    for pat, label in _QUAL_PATTERNS:
+        if pat.search(title):
+            return label
+    return ""
 
 # NOTE: UCAS scraper removed — UCAS ToS explicitly prohibit commercial use.
 # Discover Uni API replaces it with richer, licensed data (21,500 programmes).
@@ -30,10 +72,12 @@ def _dedupe(courses: Iterable[dict]) -> list[dict]:
     seen: set[tuple[str, str, str]] = set()
     out: list[dict] = []
     for c in courses:
+        title = (c.get("title") or "").strip()
+        qual = (c.get("qualification") or _infer_qualification(title)).strip()
         key = (
             (c.get("provider") or "").lower().strip(),
-            (c.get("title") or "").lower().strip(),
-            (c.get("qualification") or "").lower().strip(),
+            title.lower(),
+            qual.lower(),
         )
         if not key[0] or not key[1]:
             continue
@@ -50,11 +94,12 @@ def _upsert_courses(courses: list[dict]) -> tuple[int, int]:
     inserted = 0
     updated = 0
     for c in courses:
+        qual = c.get("qualification") or _infer_qualification(c.get("title") or "")
         params = (
             c.get("ucas_code"),
             c.get("provider") or "Unknown",
             c.get("title") or "Untitled",
-            c.get("qualification") or "",
+            qual,
             c.get("subject_area"),
             c.get("duration_months"),
             c.get("study_mode"),
