@@ -1,36 +1,32 @@
-"""UK Find a Tender Service via OCDS public API (high-value tenders > £139k)."""
+"""UK Find a Tender Service via OCDS public API (high-value tenders > £139k).
+
+Uses the same project-scope classifier as contracts_finder so non-education
+sectors (NHS, social care, defence, etc.) don't leak through.
+"""
 
 from __future__ import annotations
 
-import re
 from datetime import date, timedelta
 
 import httpx
 
 from ..common.logging_setup import get_logger
 from ..common.usb import write_raw_json
+from .contracts_finder import _classify
 
 LOGGER = get_logger("procurement.find_a_tender")
 
 API_URL = "https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages"
-
-KEEP_RE = re.compile(
-    r"\b(education|training|curriculum|edtech|e-learning|online learning|"
-    r"school|college|university|further education|higher education|"
-    r"special educational needs|sen\b|ehcp|alternative provision|"
-    r"careers|apprenticeship|skills|literacy|numeracy|"
-    r"socratic|tutor|tutoring|learning platform|teacher training|cpd)\b",
-    re.I,
-)
 
 
 def _ocds_to_row(release: dict) -> dict | None:
     tender = release.get("tender") or {}
     title = tender.get("title") or ""
     description = tender.get("description") or ""
-    if not KEEP_RE.search(f"{title} {description}"):
-        return None
     buyer = (release.get("buyer") or {}).get("name", "")
+    category, score = _classify(f"{title} {description} {buyer}")
+    if score < 3:
+        return None
     period = tender.get("tenderPeriod") or {}
     value = tender.get("value") or {}
     notice_id = release.get("ocid") or ""
@@ -40,7 +36,7 @@ def _ocds_to_row(release: dict) -> dict | None:
         "buyer": buyer[:200],
         "buyer_type": "uk-public-sector",
         "description": description[:4000],
-        "category": "education-services",
+        "category": category,
         "value_min": value.get("amount"),
         "value_max": value.get("amount"),
         "currency": (value.get("currency") or "GBP")[:3],
@@ -50,6 +46,7 @@ def _ocds_to_row(release: dict) -> dict | None:
         "source": "find-a-tender",
         "url": f"https://www.find-tender.service.gov.uk/Notice/{notice_id.split('-')[-1]}",
         "country": "UK",
+        "relevance_score": score,
         "raw_data": release,
     }
 
