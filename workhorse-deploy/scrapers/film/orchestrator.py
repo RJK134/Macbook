@@ -8,13 +8,19 @@ import sys
 
 from ..common import db
 from ..common.logging_setup import get_logger
-from . import bbc_writersroom, bfi, coverfly, screenskills, shooting_people
+from . import bbc_writersroom, bfi, coverfly, perplexity_film, screenskills, shooting_people
 
 LOGGER = get_logger("film.orchestrator")
 
+# bfi.py still scrapes successfully and perplexity_film.py covers the
+# four sources that have degraded (BBC SPA, ScreenSkills 403, Shooting
+# People 404, Coverfly unreachable). The dead site-scrapers stay in the
+# list so they auto-recover if any source restores HTML, but they no
+# longer block the orchestrator from producing results.
 SCRAPERS = [
-    ("bbc", bbc_writersroom.scrape),
+    ("perplexity", perplexity_film.scrape),
     ("bfi", bfi.scrape),
+    ("bbc", bbc_writersroom.scrape),
     ("screenskills", screenskills.scrape),
     ("shooting_people", shooting_people.scrape),
     ("coverfly", coverfly.scrape),
