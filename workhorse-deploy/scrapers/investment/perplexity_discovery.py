@@ -1,43 +1,59 @@
-"""Weekly Perplexity-driven investment/funding signal discovery."""
+"""Weekly Perplexity-driven investment / funding signal discovery.
+
+The previous implementation split the Perplexity answer on newlines and
+stored every line as a signal — every paragraph, table header and
+disclaimer ended up as a row. This version asks Perplexity for a
+strict JSON array and walks the parsed array instead.
+"""
 
 from __future__ import annotations
 
 import hashlib
 import re
 
+from ..common import llm_json, perplexity
 from ..common.logging_setup import get_logger
-from ..common import perplexity
 
 LOGGER = get_logger("investment.perplexity")
 
 QUERIES = [
     {
-        "query": (
-            "List Swiss EdTech and education technology startup funding rounds "
-            "announced in the last 14 days. For each, give: company name, amount, "
-            "currency, stage (seed/series-A/etc), investor names, and a URL. "
-            "Include Innosuisse grants if any were announced."
+        "prompt": (
+            "List Swiss EdTech and education-technology startup funding "
+            "rounds announced in the last 14 days. Include Innosuisse "
+            "grants if any were announced in the same window. Return a "
+            "JSON array of objects with these exact keys: company, amount "
+            "(integer in stated currency), currency (CHF|EUR|USD|GBP), "
+            "stage (pre-seed|seed|series-a|series-b|series-c|growth|grant), "
+            "investors (array of strings), title, url, announced_date "
+            "(ISO YYYY-MM-DD). Empty array if none. JSON ONLY — no prose."
         ),
         "sector": "edtech",
         "region": "Switzerland",
         "country": "CH",
     },
     {
-        "query": (
-            "List UK and EU EdTech startup funding rounds and grants announced "
-            "in the last 14 days. Include UKRI Innovate UK awards. "
-            "For each: company, amount, currency, stage, URL."
+        "prompt": (
+            "List UK and EU EdTech startup funding rounds and Innovate UK "
+            "EdTech-specific grant awards announced in the last 14 days. "
+            "Return a JSON array with the same shape: company, amount, "
+            "currency, stage, investors, title, url, announced_date. "
+            "Empty array if none. JSON ONLY."
         ),
         "sector": "edtech",
         "region": "UK/EU",
         "country": "UK",
     },
     {
-        "query": (
-            "List Swiss accelerator and incubator programmes accepting applications "
-            "right now. Include Venture Kick, MassChallenge Switzerland, Kickstart, "
+        "prompt": (
+            "List Swiss accelerator and incubator programmes that are "
+            "currently accepting applications (deadline in the future). "
+            "Cover Venture Kick, MassChallenge Switzerland, Kickstart, "
             "Climate-KIC, and any university-affiliated programmes. "
-            "For each: name, deadline, focus area, URL."
+            "Return a JSON array of objects with keys: company (the "
+            "programme name), stage='accelerator', title (the cohort or "
+            "track name), url, deadline (ISO YYYY-MM-DD), focus (string). "
+            "Empty array if none. JSON ONLY."
         ),
         "sector": "general",
         "region": "Switzerland",
@@ -45,21 +61,36 @@ QUERIES = [
     },
 ]
 
-AMOUNT_RE = re.compile(
-    r"(?:CHF|EUR|USD|GBP|£|€|\$)\s?([\d,.]+)\s?(million|m|k|billion|b)?",
-    re.I,
-)
+# Stage values we accept; anything else is normalised to None so the
+# downstream filter can flag malformed entries.
+ALLOWED_STAGES = {
+    "pre-seed", "seed", "series-a", "series-b", "series-c",
+    "growth", "grant", "accelerator",
+}
 
 
-def _parse_amount(text: str) -> tuple[float | None, str]:
-    m = AMOUNT_RE.search(text)
+def _normalise_amount(raw) -> tuple[float | None, str]:
+    """Coerce Perplexity's amount field (often a string with suffix)."""
+    if raw is None:
+        return None, "CHF"
+    if isinstance(raw, (int, float)):
+        return float(raw), "CHF"
+    s = str(raw).strip()
+    # Currency hint from the string itself
+    currency = "CHF"
+    for code, token in (("EUR", "EUR"), ("EUR", "€"),
+                        ("USD", "USD"), ("USD", "$"),
+                        ("GBP", "GBP"), ("GBP", "£")):
+        if token in s.upper() if token.isalpha() else token in s:
+            currency = code
+            break
+    m = re.search(r"([\d.,]+)\s*(million|m|k|billion|b)?", s, re.I)
     if not m:
-        return None, "CHF"
-    raw = m.group(1).replace(",", "")
+        return None, currency
     try:
-        val = float(raw)
+        val = float(m.group(1).replace(",", ""))
     except ValueError:
-        return None, "CHF"
+        return None, currency
     suffix = (m.group(2) or "").lower()
     if suffix in ("m", "million"):
         val *= 1_000_000
@@ -67,54 +98,71 @@ def _parse_amount(text: str) -> tuple[float | None, str]:
         val *= 1_000
     elif suffix in ("b", "billion"):
         val *= 1_000_000_000
-    currency = "CHF"
-    prefix = text[m.start():m.start()+3]
-    if "EUR" in prefix or "€" in prefix:
-        currency = "EUR"
-    elif "USD" in prefix or "$" in prefix:
-        currency = "USD"
-    elif "GBP" in prefix or "£" in prefix:
-        currency = "GBP"
     return val, currency
 
 
-def _make_source_ref(query: str, line: str, idx: int) -> str:
-    """Deterministic hash for dedup when no citation URL is available."""
-    content = f"{query}:{idx}:{line[:100]}"
-    return hashlib.sha256(content.encode()).hexdigest()[:16]
+def _normalise_stage(raw) -> str | None:
+    if not raw:
+        return None
+    s = str(raw).strip().lower().replace(" ", "-")
+    return s if s in ALLOWED_STAGES else None
+
+
+def _source_ref(query_idx: int, item: dict) -> str:
+    """Deterministic dedup key — prefer URL, fall back to company+date."""
+    key = item.get("url") or f"{item.get('company','')}|{item.get('announced_date','')}"
+    return hashlib.sha256(f"{query_idx}:{key}".encode()).hexdigest()[:16]
 
 
 def scrape() -> list[dict]:
     out: list[dict] = []
-    for q in QUERIES:
+    for idx, q in enumerate(QUERIES):
         try:
-            resp = perplexity.ask(q["query"], model="sonar-pro")
-            answer = resp.get("answer", "")
-            citations = resp.get("citations", [])
-            lines = [l.strip() for l in answer.split("\n") if l.strip() and len(l.strip()) > 20]
-            for idx, line in enumerate(lines):
-                amount, currency = _parse_amount(line)
-                url = citations[idx] if idx < len(citations) else None
-                source_ref = _make_source_ref(q["query"], line, idx)
-                out.append({
-                    "signal_type": "funding-round",
-                    "title": line[:300],
-                    "company": None,
-                    "funder": None,
-                    "amount": amount,
-                    "currency": currency,
-                    "stage": None,
-                    "region": q["region"],
-                    "country": q["country"],
-                    "sector": q["sector"],
-                    "url": url,
-                    "source": "perplexity",
-                    "source_ref": source_ref,
-                    "description": answer[:2000],
-                    "raw_data": {"query": q["query"], "citations": citations},
-                })
-            LOGGER.info("Perplexity %s/%s: %d lines", q["sector"], q["region"], len(lines))
+            resp = perplexity.cached_ask(q["prompt"], model="sonar-pro", cache_hours=24 * 3)
         except Exception as exc:
-            LOGGER.warning("Perplexity query failed: %s", exc)
-    LOGGER.info("Perplexity investment discovery: %d signals", len(out))
+            LOGGER.warning("Perplexity %s/%s failed: %s", q["sector"], q["region"], exc)
+            continue
+        items = llm_json.parse_json_array(resp.get("answer", ""))
+        for item in items:
+            url = item.get("url")
+            if not url or not str(url).startswith("http"):
+                continue
+            title = (item.get("title") or item.get("company") or "")[:300]
+            if not title:
+                continue
+            amount, parsed_currency = _normalise_amount(item.get("amount"))
+            currency = (item.get("currency") or parsed_currency or "CHF")[:3]
+            stage = _normalise_stage(item.get("stage"))
+            investors = item.get("investors") or []
+            if isinstance(investors, str):
+                investors = [investors]
+            investors_text = ", ".join(str(i) for i in investors[:10] if i)
+            description_parts = [
+                item.get("company", ""),
+                f"stage={stage}" if stage else "",
+                f"investors: {investors_text}" if investors_text else "",
+                item.get("focus", ""),
+            ]
+            description = " · ".join(p for p in description_parts if p)
+            out.append({
+                "signal_type": "funding-round" if stage != "accelerator" else "accelerator-call",
+                "title": title,
+                "company": (item.get("company") or "")[:200],
+                "funder": investors_text[:300] or None,
+                "amount": amount,
+                "currency": currency,
+                "stage": stage,
+                "region": q["region"],
+                "country": q["country"],
+                "sector": q["sector"],
+                "url": url,
+                "source": "perplexity",
+                "source_ref": _source_ref(idx, item),
+                "description": description[:2000],
+                "raw_data": {"query_idx": idx, "item": item},
+            })
+        LOGGER.info("Perplexity %s/%s: %d items kept (was %d returned)",
+                    q["sector"], q["region"], sum(1 for o in out if o["raw_data"]["query_idx"] == idx),
+                    len(items))
+    LOGGER.info("Investment discovery: %d signals", len(out))
     return out
