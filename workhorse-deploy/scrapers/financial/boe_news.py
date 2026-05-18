@@ -15,19 +15,13 @@ QUERIES = [
     {
         "category": "monetary-policy",
         "prompt": (
-            "List news, statistical releases, and Monetary Policy Committee "
-            "announcements published on bankofengland.co.uk in the last 14 "
-            "days. For each return: title, summary, publication_date (ISO), "
-            "url. JSON array only."
-        ),
-    },
-    {
-        "category": "financial-stability",
-        "prompt": (
-            "List Bank of England Financial Policy Committee, Prudential "
-            "Regulation Authority, and financial stability publications from "
-            "the last 30 days. JSON array of {title, summary, publication_"
-            "date, url}."
+            "List ONLY the headline Monetary Policy Committee decisions, "
+            "Monetary Policy Reports, and rate-change announcements "
+            "published on bankofengland.co.uk in the last 14 days. EXCLUDE "
+            "weekly statistical releases, market-operations Q-reports, "
+            "and minutes of working groups — those are operational noise "
+            "for our consultancy context. For each kept item return: "
+            "title, summary, publication_date (ISO), url. JSON array only."
         ),
     },
 ]

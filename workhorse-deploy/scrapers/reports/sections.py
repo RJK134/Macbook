@@ -536,12 +536,26 @@ def shakespeare_section(limit: int = 12) -> dict:
 
 def finance_bulletins_section(limit: int = 12) -> dict:
     start, _ = _week_window()
+    # Sort by source priority (DfE first — education policy is most
+    # relevant) then most-recent first within each source. The scraper-
+    # side per-source KEEP_RE already drops off-scope HMRC tax manuals,
+    # FCA banking enforcement, ONS deaths/trade, and BoE weekly market
+    # reports, so anything left is in-scope.
     rows = db.fetch_all(
         """
         SELECT source, category, title, url, summary, published_date
         FROM finance_bulletins
         WHERE discovered_at >= %s
-        ORDER BY published_date DESC NULLS LAST, discovered_at DESC
+        ORDER BY
+          CASE source
+            WHEN 'dfe' THEN 1
+            WHEN 'ons' THEN 2
+            WHEN 'hmrc' THEN 3
+            WHEN 'fca' THEN 4
+            WHEN 'boe' THEN 5
+            ELSE 6
+          END,
+          published_date DESC NULLS LAST, discovered_at DESC
         LIMIT %s
         """,
         (start, limit),
