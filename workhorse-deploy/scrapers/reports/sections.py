@@ -396,7 +396,12 @@ def procurement_section(limit: int = 15) -> dict:
         SELECT title, buyer, value_max, currency, deadline_date, source, url, category
         FROM procurement_opportunities
         WHERE discovered_at >= %s
-        ORDER BY (deadline_date IS NULL), deadline_date ASC, value_max DESC NULLS LAST
+          AND relevance_score >= 3
+          AND category <> 'rejected'
+          AND (deadline_date IS NULL OR deadline_date >= CURRENT_DATE)
+        ORDER BY relevance_score DESC,
+                 (deadline_date IS NULL), deadline_date ASC,
+                 value_max DESC NULLS LAST
         LIMIT %s
         """,
         (start, limit),
@@ -424,11 +429,17 @@ def procurement_section(limit: int = 15) -> dict:
 
 def education_resources_section(limit: int = 15) -> dict:
     start, _ = _week_window()
+    # Drop rows that fell through the scraper-side classifier without a
+    # real subject (legacy ted-ed imports, perplexity rows with empty
+    # subject, etc.) — they were the main source of irrelevant noise.
     rows = db.fetch_all(
         """
         SELECT subject, level, exam_board, resource_type, title, source, url
         FROM education_resources
         WHERE discovered_at >= %s
+          AND subject IS NOT NULL
+          AND subject <> ''
+          AND lower(subject) <> 'general'
         ORDER BY discovered_at DESC
         LIMIT %s
         """,
