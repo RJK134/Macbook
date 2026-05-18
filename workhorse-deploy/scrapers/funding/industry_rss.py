@@ -1,10 +1,17 @@
-"""EdTech industry RSS feeds — EdSurge, EU-Startups, Sifted.
+"""EdTech industry RSS feeds — EdSurge, EU-Startups, Sifted, TechCrunch.
 
-Three free RSS feeds providing EdTech funding news that the broad
-gov.uk Atom feeds miss.
+These are news feeds, not grant calls. We tag rows category='industry-news'
+so the funding section can exclude them. They surface as supporting
+context in the AI Research / investment views instead.
+
+Strict EdTech filter: a row only survives if the title or summary
+contains an explicit education / learning-platform / curriculum signal.
+Generic biotech / quantum / cyber funding rounds are dropped.
 """
 
 from __future__ import annotations
+
+import re
 
 import feedparser
 
@@ -20,6 +27,19 @@ FEEDS = [
     ("https://techcrunch.com/tag/funding/feed", "techcrunch"),
 ]
 
+# Must reference education explicitly. Plain "funding"/"raises"/"series A"
+# matched too much biotech / SaaS / quantum / cyber news.
+EDU_REQUIRED_RE = re.compile(
+    r"\b(edtech|edu-?tech|education technology|"
+    r"k-?12|higher education|university|college|"
+    r"learning platform|online learning|e-learning|"
+    r"curriculum|tutoring|tutor app|"
+    r"student|teacher|school|"
+    r"instructional design|learning experience|"
+    r"micro-credential|skills bootcamp|apprenticeship platform)\b",
+    re.I,
+)
+
 
 def scrape() -> list[dict]:
     out: list[dict] = []
@@ -29,20 +49,17 @@ def scrape() -> list[dict]:
             feed = feedparser.parse(url)
             for e in feed.entries:
                 title = e.get("title", "")
-                text = (title + " " + (e.get("summary", "") or "")).lower()
-                if not any(kw in text for kw in (
-                    "edtech", "education", "learning", "university",
-                    "funding", "raise", "series", "seed", "grant",
-                    "accelerator", "incubat", "student",
-                )):
+                summary = e.get("summary", "") or ""
+                if not EDU_REQUIRED_RE.search(f"{title} {summary}"):
                     continue
                 out.append({
                     "title": title[:300],
                     "funder": "Various",
                     "url": e.get("link", "") or e.get("guid", ""),
-                    "description": (e.get("summary", "") or "")[:2000],
+                    "description": summary[:2000],
                     "source": source_name,
                     "category": "industry-news",
+                    "relevance_score": 4,
                     "raw_data": {"published": e.get("published", "")},
                 })
             write_raw_json("funding", f"rss-{source_name}", {"items": len(feed.entries)})

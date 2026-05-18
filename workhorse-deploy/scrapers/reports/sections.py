@@ -138,6 +138,9 @@ def financial_section(limit: int = 6) -> dict:
 
 def funding_section(limit: int = 20) -> dict:
     start, _ = _week_window()
+    # 'industry-news' rows are press articles, not grants the operator
+    # can apply to — surfaced separately. relevance_score in this table
+    # uses 1 (top) → 5 (noise); 3 is the open-grant default.
     rows = db.fetch_all(
         """
         SELECT title, funder, country, currency, amount_max, deadline, url, description
@@ -145,6 +148,8 @@ def funding_section(limit: int = 20) -> dict:
         WHERE discovered_at >= %s
           AND (deadline IS NULL OR deadline >= CURRENT_DATE)
           AND status = 'open'
+          AND COALESCE(category, '') <> 'industry-news'
+          AND COALESCE(relevance_score, 3) <= 3
         ORDER BY relevance_score, deadline NULLS LAST
         LIMIT %s
         """,
@@ -175,12 +180,17 @@ def funding_section(limit: int = 20) -> dict:
 
 def jobs_section(limit: int = 20) -> dict:
     start, _ = _week_window()
+    # job_listings.relevance_score: 1 = high (EdTech/HE-specific titles),
+    # 3 = medium (mentions university/college/student), 5 = noise (no
+    # edu signal). The default sort by score still works, but we now
+    # drop the noise tier so generic remote SWE jobs don't surface.
     rows = db.fetch_all(
         """
         SELECT title, employer, country, category, url, closing_date
         FROM job_listings
         WHERE discovered_at >= %s
           AND (closing_date IS NULL OR closing_date >= CURRENT_DATE)
+          AND COALESCE(relevance_score, 5) <= 3
         ORDER BY relevance_score, discovered_at DESC
         LIMIT %s
         """,
@@ -359,12 +369,15 @@ def research_section(limit: int = 15) -> dict:
 
 def gmail_section(limit: int = 25) -> dict:
     start, _ = _week_window()
+    # 'learning' is dev-tools chatter the user doesn't need in a weekly
+    # business digest. Self-emails are notes-to-self.
     rows = db.fetch_all(
         """
         SELECT from_email, from_name, subject, category, received_at, body_excerpt
         FROM gmail_items
         WHERE classified_at >= %s
-          AND category != 'ignore'
+          AND category NOT IN ('ignore', 'learning')
+          AND lower(COALESCE(from_email, '')) <> 'richardknapp134@gmail.com'
         ORDER BY received_at DESC NULLS LAST
         LIMIT %s
         """,

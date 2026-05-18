@@ -19,60 +19,115 @@ from __future__ import annotations
 
 import re
 
+# --- ignore-first patterns (run before any category match) -----------
+
+# Promotional digest / sender spam — keep classified as 'ignore' so they
+# never surface in the weekly digest even when their bodies mention
+# "course", "job", "funding" etc.
+IGNORE_SENDER_RE = re.compile(
+    r"(info@jobs\.ch|candidat@jobup\.ch|jobalerts-noreply@linkedin\.com|"
+    r"recommender@my\.jobscout24\.ch|"
+    r"noreply@filmfreeway\.com|no-reply@e\.udemymail\.com|"
+    r"hello@instructors\.udemy\.com|coursera@m\.learn\.coursera\.org|"
+    r"no-reply@t\.mail\.coursera\.org|email@nofilmschool\.com|"
+    r"deals@|offers@|promo@|marketing@|newsletter@|"
+    r"failed-payments\+|billing@|payments@|receipts@|invoice@|"
+    r"contact@mail\.scrapes\.ai|"
+    r"hi@cursor\.com|notification@slack\.com|"
+    r"hsbcuk@|hello@notify\.railway\.app|stripe\.com|"
+    r"@mail\.michaelpage\.ch|noreply_careers@elca\.ch|"
+    r"@privaterelay\.appleid\.com|"
+    r"account-security-noreply@accountpro)",
+    re.I,
+)
+IGNORE_SUBJECT_RE = re.compile(
+    r"(job recommendations for you|festival spotlight|"
+    r"this week on filmfreeway|"
+    r"\bsale\b.*\$\d|\d+% off|discount|coupon|\bdeal\b|"
+    r"payment was unsuccessful|payment failed|invoice #|receipt for|"
+    r"re: query regarding billing|re: .* charges|"
+    r"news about your companies|weekly job opportunities|"
+    r"recommended:|join us for|may sale|"
+    r"your task is complete|scan failed|build failed|"
+    r"no api access|automation blocked|standup brief|"
+    r"automation script provided|script for issue and pr|"
+    r"new app\(s\) connected to your)",
+    re.I,
+)
+
+# Self-emails the user sends himself as notes
+SELF_EMAIL = "richardknapp134@gmail.com"
+
 JOB_BOARDS = re.compile(
     r"\b(jobs\.ac\.uk|timeshighereducation|jobs\.ch|linkedin.*(?:job|hiring|posted)|"
     r"indeed|glassdoor|reed\.co|cv-library|monster|jobup|jobscout24|"
     r"michaelpage|academicpositions|elca\.ch|hays|adzuna)\b",
     re.I,
 )
+# Tighter — needs application-process specific phrasing, not just
+# "unfortunately" or "next steps" which match marketing copy.
 JOB_APP_RE = re.compile(
-    r"\b(application (received|update|status)|interview|offer|next steps?|"
-    r"unfortunately|we regret|thank you for applying|your application)\b",
+    r"\b(application (received|update|status|reference)|"
+    r"interview invitation|interview scheduled|"
+    r"thank you for applying|we have reviewed your application|"
+    r"unfortunately.*your application|regarding your application|"
+    r"job offer:|offer of employment|conditional offer)\b",
     re.I,
 )
 FUNDING_RE = re.compile(
-    r"\b(grant|innovate uk|ukri|horizon europe|snsf|call for proposals?|"
-    r"award|bursary|scheme open|research council)\b",
+    r"\b(grant call|innovate uk|ukri|horizon europe|snsf|call for proposals?|"
+    r"bursary|scheme open|research council|funding opportunity|"
+    r"award open for applications)\b",
     re.I,
 )
 INVESTMENT_RE = re.compile(
-    r"\b(startup|seed round|series [a-c]|venture capital|angel invest\w*|fundrais\w*|"
+    r"\b(seed round|series [a-c]|venture capital|angel invest\w*|"
     r"pitch deadline|accelerator|incubat\w*|innosuisse|f6s|swisspreneur|fongit|"
-    r"edtech fund|eu-startups|silicon canals|fresh rounds|funding round|"
-    r"venture builder|pre-seed)\b",
+    r"edtech fund|venture builder|pre-seed)\b",
     re.I,
 )
 FILM_RE = re.compile(
     r"\b(bfi|bbc writersroom|screenskills|coverfly|shooting people|"
     r"script (competition|comp)|screenplay|film fund|writers? room|"
-    r"filmfreeway|nofilmschool|cinefile|finaldraft|final draft|"
-    r"festival spotlight|script.?to.?screen|screenwriting|"
-    r"short film|feature film|film festival)\b",
+    r"finaldraft|final draft|"
+    r"script.?to.?screen|screenwriting|"
+    r"short film|feature film commission)\b",
     re.I,
 )
 COURSE_RE = re.compile(
-    r"\b(ucas|discoveruni|whatuni|complete university guide|course (info|catalog)|"
-    r"prospectus|enrol|admission|coursera|edx|futurelearn|class central|"
-    r"findamasters|findaphd|open university|udemy)\b",
+    r"\b(ucas|discoveruni|whatuni|complete university guide|"
+    r"prospectus|enrol|admission|"
+    r"findamasters|findaphd|open university)\b",
     re.I,
 )
+# 'Learning' = signals about dev tools the user actually develops with.
+# Tightened so generic mentions of "cursor" (as in "move cursor") or
+# transactional Stripe/Cursor billing emails no longer match.
 LEARNING_RE = re.compile(
-    r"\b(claude code|cursor\b|copilot|github actions?|pull request|"
-    r"merge conflict|build fail\w*|mcp server|n8n\b|code review|"
-    r"anthropic|openai api|claude shortcut|agents? go|"
-    r"scrapes\.ai|skool\.com)\b",
+    r"\b(claude code|cursor (release|update|tip)|copilot release|"
+    r"merge conflict|build failed|mcp server|n8n release|"
+    r"anthropic blog|openai api update|agents? sdk)\b",
     re.I,
 )
 NEWSLETTER_RE = re.compile(
     r"\b(wonkhe|hepi|jisc|times higher|university business|herm|edtech weekly|"
-    r"perplexity|iamexpat|swisscore|belearn)\b",
+    r"iamexpat|swisscore|belearn)\b",
     re.I,
 )
 
 
 def classify(*, from_email: str, subject: str, body: str,
              label_hint: str | None = None) -> str:
-    text = f"{from_email} {subject} {body[:2000]}".lower()
+    sender = (from_email or "").lower()
+    text = f"{sender} {subject} {body[:2000]}".lower()
+
+    # Self-emails are notes-to-self, never go into the digest
+    if SELF_EMAIL in sender:
+        return "ignore"
+
+    # Promotional / billing / sender spam — short-circuit to ignore
+    if IGNORE_SENDER_RE.search(sender) or IGNORE_SUBJECT_RE.search(subject or ""):
+        return "ignore"
 
     if JOB_APP_RE.search(text):
         return "job-app"
