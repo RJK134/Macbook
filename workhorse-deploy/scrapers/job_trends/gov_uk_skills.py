@@ -46,6 +46,32 @@ REJECT_RE = re.compile(
     re.I,
 )
 
+# Trend inference cues — these win in order. Default is "neutral" (a
+# policy or research signal that doesn't itself indicate direction).
+TREND_GROWING_RE = re.compile(
+    r"\b(growth|growing|expand|investment in|priority skills?|"
+    r"new jobs?|future skills?|skills demand|hiring|"
+    r"jobs plan|skills bootcamp|t levels|apprenticeship growth)\b",
+    re.I,
+)
+TREND_DECLINING_RE = re.compile(
+    r"\b(decline|declining|shrinking|job losses?|cut\b|cuts|cutbacks|"
+    r"redundancies?|redundant|closure|closing|"
+    r"obsolete|skills shortage|skills gap|"
+    r"sunset|wind[- ]down|phase[- ]out)\b",
+    re.I,
+)
+
+
+def _infer_trend(text: str) -> str:
+    """Classify a labour-market signal as growing|declining|neutral."""
+    if TREND_DECLINING_RE.search(text):
+        return "declining"
+    if TREND_GROWING_RE.search(text):
+        return "growing"
+    return "neutral"
+
+
 # Title or summary must contain at least one strong labour-market signal.
 REQUIRE_RE = re.compile(
     r"\b(skill\s*(shortage|gap|need|projection|priority|white paper|policy|strategy)|"
@@ -88,7 +114,7 @@ def scrape() -> list[dict]:
                 out.append({
                     "occupation": title[:200],
                     "sector": "skills-policy",
-                    "trend": "growing",
+                    "trend": _infer_trend(text),
                     "source": "gov.uk",
                     "source_url": link,
                     "raw_data": {
